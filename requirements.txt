@@ -1,0 +1,32 @@
+# Core ML / GNN
+torch>=2.0.0,<3.0
+torch-geometric>=2.4.0
+torch-scatter>=2.1.0
+torch-sparse>=0.6.17
+
+# Graph utilities
+networkx>=3.0
+numpy>=1.24
+pandas>=2.0
+scipy>=1.10
+
+# ML baselines
+scikit-learn>=1.3
+xgboost>=2.0
+
+# Visualization
+matplotlib>=3.7
+seaborn>=0.12
+
+# Data / IO
+tqdm>=4.65
+requests>=2.31
+pyarrow>=12.0
+
+# Testing
+pytest>=7.4
+pytest-cov>=4.1
+
+# LaTeX-related (not strictly needed; for reference)
+# texlive-full
+# texlive-lang-chinese

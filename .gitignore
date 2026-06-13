@@ -1,0 +1,81 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Project-specific (raw data, large artifacts)
+data/elliptic2/raw/
+data/elliptic2/processed/
+results/raw_runs/
+results/checkpoints/*.pt
+*.parquet
+*.csv.bak
+
+# Credentials (NEVER commit)
+.git-credentials
+**/credentials*.txt
+**/*token*.txt
+**/*api*.txt
+!paper/*.txt
+
+# LaTeX auxiliary
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+paper/auto/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude session (auto-generated)
+.claude/
