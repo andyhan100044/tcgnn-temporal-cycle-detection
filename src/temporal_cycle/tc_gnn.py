@@ -151,9 +151,14 @@ class TC_GNN(nn.Module):
         node_feature_dim: int,
         hidden_dim: int = 64,
         n_gnn_layers: int = 2,
+        dropout: float = 0.2,
     ):
         super().__init__()
-        self.input_proj = nn.Linear(node_feature_dim, hidden_dim)
+        self.input_proj = nn.Sequential(
+            nn.Linear(node_feature_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+        )
         self.gnn_layers = nn.ModuleList([
             TemporalMessagePassing(in_dim=hidden_dim, out_dim=hidden_dim)
             for _ in range(n_gnn_layers)
@@ -164,20 +169,17 @@ class TC_GNN(nn.Module):
         self.classifier = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_dim, 1),
         )
 
     def _gather_cycle_edges(
         self,
         cycles: List[Dict],
-        node_id_map: Dict[int, int],
+        local_map: Dict[int, int],
         device: torch.device,
     ) -> tuple:
-        """For all cycles, build a flat edge list spanning all cycles.
-
-        Each cycle contributes its k edges. For the GNN we need edges across
-        all unique nodes in the batch.
-        """
+        """For all cycles, build a flat edge list using LOCAL indices (0..len(all_nodes)-1)."""
         edge_src = []
         edge_dst = []
         edge_t   = []
@@ -188,8 +190,8 @@ class TC_GNN(nn.Module):
             amounts = c["amounts"]
             k = len(nodes)
             for i in range(k):
-                src = node_id_map[nodes[i]]
-                dst = node_id_map[nodes[(i + 1) % k]]
+                src = local_map[nodes[i]]
+                dst = local_map[nodes[(i + 1) % k]]
                 edge_src.append(src)
                 edge_dst.append(dst)
                 edge_t.append(float(times[i]))
@@ -205,10 +207,13 @@ class TC_GNN(nn.Module):
         self,
         cycles: List[Dict],
         node_emb: torch.Tensor,
-        node_id_map: Dict[int, int],
+        local_map: Dict[int, int],
         device: torch.device,
     ) -> tuple:
-        """Per-cycle: gather node embeddings and edge attributes into tensors."""
+        """Per-cycle: gather node embeddings and edge attributes into tensors.
+
+        Uses local_map (raw node ID -> local index in node_emb).
+        """
         max_len = max(len(c["nodes"]) for c in cycles)
         n_cycles = len(cycles)
 
@@ -221,7 +226,7 @@ class TC_GNN(nn.Module):
             amounts = c["amounts"]
             k = len(nodes)
             for j in range(k):
-                idx = node_id_map[nodes[j]]
+                idx = local_map[nodes[j]]
                 node_emb_batch[ci, j] = node_emb[idx]
 
                 t = float(times[j])
@@ -246,56 +251,41 @@ class TC_GNN(nn.Module):
         node_id_map: Dict[int, int],
     ) -> torch.Tensor:
         device = node_features.device
-        h = self.input_proj(node_features)
 
-        # Message passing across all unique nodes in the cycle batch
+        # 1. Map raw node IDs to local positions (only nodes that appear in cycles)
         all_nodes = sorted({n for c in cycles for n in c["nodes"]})
-        current_t = torch.tensor(
-            [max(c["times"]) for n in all_nodes for c in cycles if n in c["nodes"]],
-            dtype=torch.float32, device=device,
-        )
-        # Simpler: assign current_t as max time of any cycle containing the node
+        local_map = {n: i for i, n in enumerate(all_nodes)}
+
+        # 2. Compute per-node max-time (for time-filtering in message passing)
         node_to_cur_t = {}
         for c in cycles:
             for n in c["nodes"]:
                 node_to_cur_t[n] = max(node_to_cur_t.get(n, 0), max(c["times"]))
-        current_t_per_node = torch.tensor(
+        current_t_used = torch.tensor(
             [float(node_to_cur_t.get(n, 0)) for n in all_nodes],
             dtype=torch.float32, device=device,
         )
-        # Re-index: node_features may have all nodes, but we only need those in cycles
+
+        # 3. Project full node_features, then restrict to used nodes
+        h = self.input_proj(node_features)
         used_idx = torch.tensor(
             [node_id_map[n] for n in all_nodes], dtype=torch.long, device=device,
         )
         h_used = h[used_idx]
-        current_t_used = current_t_per_node
 
-        # Gather edges
+        # 4. Gather cycle edges using LOCAL indices (consistent with h_used)
         edge_src, edge_dst, edge_t, edge_w = self._gather_cycle_edges(
-            cycles, node_id_map, device,
-        )
-        # Re-index edge src/dst to local positions (0..len(all_nodes)-1)
-        local_map = {n: i for i, n in enumerate(all_nodes)}
-        edge_src_local = torch.tensor(
-            [local_map[all_nodes[i]] for i in edge_src.cpu().tolist()],
-            dtype=torch.long, device=device,
-        )
-        edge_dst_local = torch.tensor(
-            [local_map[all_nodes[i]] for i in edge_dst.cpu().tolist()],
-            dtype=torch.long, device=device,
+            cycles, local_map, device,
         )
 
+        # 5. Apply GNN layers
         for layer in self.gnn_layers:
-            h_used = layer(h_used, edge_src_local, edge_dst_local,
+            h_used = layer(h_used, edge_src, edge_dst,
                            edge_t, edge_w, current_t_used)
 
-        # Map back to full node_features index space (for cycle encoding)
-        h_full = torch.zeros_like(h)
-        h_full[used_idx] = h_used
-
-        # Build per-cycle embeddings
+        # 6. Build per-cycle embeddings using LOCAL indices
         node_emb_batch, edge_attr_batch = self._build_cycle_features(
-            cycles, h_full, node_id_map, device,
+            cycles, h_used, local_map, device,
         )
         cycle_emb = self.cycle_encoder(node_emb_batch, edge_attr_batch)
         return self.classifier(cycle_emb)

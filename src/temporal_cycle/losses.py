@@ -41,10 +41,29 @@ def constraint_regularized_loss(
 
     logits:  (B, 1) raw model output (BCE-with-logits).
     labels:  (B, 1) ground-truth (0/1).
-    times:   (B, L) cycle edge timestamps.
+    times:   (B, L) cycle edge timestamps (variable-length rows OK).
     amounts: (B, L) cycle edge amounts.
+
+    Computes penalties per-sample and averages to allow variable-length rows.
     """
     bce = nn.functional.binary_cross_entropy_with_logits(logits, labels)
-    l_temp = temporal_increasing_penalty(times)
-    l_val  = value_conservation_penalty(amounts)
+
+    # Per-cycle temporal penalty: max(0, t_i - t_{i+1}) summed, then averaged
+    if times.numel() > 0:
+        diffs = times[:, :-1] - times[:, 1:]  # (B, L-1)
+        per_cycle_temp = torch.clamp(diffs, min=0.0).sum(dim=1)  # (B,)
+        l_temp = per_cycle_temp.mean()
+    else:
+        l_temp = torch.tensor(0.0, device=logits.device)
+
+    # Per-cycle value-conservation penalty
+    if amounts.numel() > 0:
+        mean = amounts.mean(dim=1, keepdim=True).clamp(min=1e-9)  # (B, 1)
+        dev = (amounts - mean).abs()
+        max_dev = dev.max(dim=1).values  # (B,)
+        per_cycle_val = max_dev / mean.squeeze(1)
+        l_val = per_cycle_val.mean()
+    else:
+        l_val = torch.tensor(0.0, device=logits.device)
+
     return bce + lambda_temp * l_temp + lambda_val * l_val

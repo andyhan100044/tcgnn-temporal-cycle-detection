@@ -1,0 +1,11 @@
+{
+  "data_source": "synthetic_elliptic1_scale-small",
+  "n_nodes": 20000,
+  "n_edges": 25430,
+  "n_illicit": 2288,
+  "n_candidates": 1252,
+  "n_pos": 874,
+  "n_neg": 378,
+  "epochs": 5,
+  "hidden_dim": 32
+}
