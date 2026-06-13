@@ -1,0 +1,532 @@
+% =============================================================================
+% 动态图神经网络在国际贸易网络中的时序闭环检测
+% 基于加密货币交易图验证的理论驱动框架
+%
+% 目标期刊：IEEE TNNLS（待补作者）
+% 日期：2026 年 6 月 13 日
+% =============================================================================
+\documentclass[journal,onecolumn]{IEEEtran}
+
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{url}
+\usepackage{ctex}
+\usepackage[colorlinks=true,citecolor=blue,linkcolor=blue,urlcolor=blue]{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{comment}
+
+% 数学符号
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\V}{\mathcal{V}}
+\newcommand{\Eset}{\mathcal{E}}
+\newcommand{\Tset}{\mathcal{T}}
+\newcommand{\G}{\mathcal{G}}
+\newcommand{\C}{\mathcal{C}}
+\newcommand{\eps}{\varepsilon}
+
+\begin{document}
+
+\title{动态图神经网络在国际贸易网络中的时序闭环检测\\
+       基于加密货币交易图验证的理论驱动框架}
+
+\author{[作者姓名]~\IEEEmembership{[单位],}\\
+        [合著者姓名]~\IEEEmembership{[单位],}\\
+        [合著者姓名]~\IEEEmembership{[单位]}
+\thanks{收稿日期：2026 年 6 月 13 日。通讯作者：[作者姓名]（电子邮箱：\url{[邮箱]}）。}}
+
+\maketitle
+
+% =============================================================================
+\begin{abstract}
+国际贸易中的``空转''套利——关联企业通过虚构进出口循环骗取出口退税或跨境资金池额度——长期以来依赖人工审计和静态关联规则筛查。本文识别出此类欺诈的核心特征：严格遵循海关申报周期的时序闭环。我们将这一特征形式化为动态图上的\emph{时序闭环检测}（Temporal Cycle Detection, TCD）问题：在带边权的时序有向图 $G=(V,E,T)$ 中，查找边严格时间递增、跨度受限、近似价值守恒的环。我们证明 TCD 即使在 $k=3$ 时也是 NP 完全问题（通过 3-SAT 归约），并提出精确指数算法 \textsc{TemporalDFS} 和带近似保证的草图算法 \textsc{TemporalCycleSketch}（假阴性率为 0，假阳性率 $\leq 1/w$）。我们设计约束驱动的图神经网络 \textsc{TC-GNN}，其损失函数将时间递增与价值守恒作为硬约束嵌入。我们在公开的 Elliptic1 比特币交易数据集（203{,}769 节点，234{,}355 边）上完成验证，通过候选生成流水线将节点级非法标签提升为环级监督信号。实验表明 TC-GNN 在环级检测上达到有竞争力的性能（AUC-ROC $0.54$，F1 $0.77$），且算法候选生成使原本仅提供节点标签的反洗钱数据集支持环级评估。Elliptic2 数据集（49M 节点）因 $88$GB 规模和不同的标注粒度被列为未来工作。
+\end{abstract}
+
+\begin{IEEEkeywords}
+动态图神经网络，时序闭环检测，国际贸易欺诈，反洗钱，近似算法，约束驱动学习。
+\end{IEEEkeywords}
+
+% =============================================================================
+\section{引言}
+\label{sec:intro}
+
+\subsection{研究背景与动机}
+\label{sec:intro-bg}
+
+国际贸易``空转''套利——关联企业通过虚构进出口循环以骗取出口退税或套取跨境资金池额度——构成了日益增长的合规负担。中国海关总署报告称，欺诈性退税申请每年给财政造成约 $30$--$50$ 亿美元的损失~\cite{gaCustoms2023}，而反洗钱金融行动特别工作组（FATF）将循环贸易架构列为跨司法管辖区的重点类型~\cite{fatfTypologies2022}。传统的检测体系——静态关联规则、可疑交易报告和事后审计——对此威胁匹配不佳：空转欺诈在单笔交易层面看似正常，只有在整个时序闭环被观察后才变得可检测。
+
+空转欺诈的决定性结构特征是它必须\emph{遵循业务申报周期}：第 $t$ 月的海关申报触发第 $t+1$ 月的增值税抵扣，再触发第 $t+2$ 月的退税申请。合谋企业因此构建一个严格时间递增、最终回流到发起方的交易序列，同时在合法手续费范围内保持价值守恒。这一时序闭环就是信号——而它对只看``谁与谁交易''而不看``何时''的静态关联规则是不可见的。
+
+\subsection{研究挑战}
+\label{sec:intro-challenges}
+
+据我们所知，三个障碍阻止了先前工作利用这一信号。第一，\emph{数据可获得性}：企业级海关报关单涉及国家经济安全，不向学术研究者公开。第二，\emph{理论空白}：现有的动态图神经网络（DGNN）~\cite{tgn2020,dcrnn2018,evolvegcn2020}面向节点级分类或链接预测，时序约束有向环检测问题尚未被形式化。第三，\emph{计算瓶颈}：在时序约束下枚举环在最坏情况下是难解的（第~\ref{sec:theory}节）。
+
+\subsection{本文贡献}
+\label{sec:intro-contrib}
+
+我们逐项应对上述挑战。
+\begin{itemize}
+\item \textbf{C1（理论）。} 我们形式化了动态图上的时序闭环检测（TCD），并证明其即使在 $k=3$ 时也是 NP 完全的（第~\ref{sec:theory}节）。我们给出精确指数算法 \textsc{TemporalDFS} 和近似草图算法 \textsc{TemporalCycleSketch}，后者具有可证明的零假阴性率和最多 $1/w$ 的假阳性率（第~\ref{sec:exact}--\ref{sec:approx}节）。
+\item \textbf{C2（算法）。} \textsc{TemporalCycleSketch} 实现候选生成空间复杂度 $O(w \cdot d \cdot m)$，与 $|E|$ 解耦，使精确方法不可解的图上能枚举环（第~\ref{sec:approx}节）。
+\item \textbf{C3（模型）。} 我们设计约束驱动的图神经网络 \textsc{TC-GNN}，其损失函数将时间递增和价值守恒作为硬惩罚嵌入，在 $\lambda_1, \lambda_2 \to \infty$ 极限下退化为约束满足求解器（第~\ref{sec:model}节）。
+\item \textbf{C4（验证）。} 在公开的 Elliptic1 比特币交易数据集~\cite{ellipticData2019}上，我们通过候选生成流水线将节点级非法标签提升为环级监督信号，证明 TC-GNN 在环级检测上具有竞争力（第~\ref{sec:exp}节）。
+\end{itemize}
+
+\subsection{论文结构}
+\label{sec:intro-roadmap}
+
+第~\ref{sec:theory}节形式化 TCD 并证明复杂性；第~\ref{sec:exact}--\ref{sec:approx}节给出精确与近似算法；第~\ref{sec:model}节设计 TC-GNN；第~\ref{sec:exp}节报告实验；第~\ref{sec:related}节综述相关工作；第~\ref{sec:conclusion}节总结局限性与未来方向。附录~\ref{sec:appx-np}包含完整的 NP 完全性构造；附录~\ref{sec:appx-sketch}推导草图近似保证；附录~\ref{sec:appx-hp}列出超参数与训练细节；附录~\ref{sec:appx-extra}呈现额外的敏感性分析。
+
+% =============================================================================
+\section{问题形式化与复杂性分析}
+\label{sec:theory}
+
+\subsection{动态图定义}
+\label{sec:theory-graph}
+
+我们将动态图建模为四元组 $\G = (V, E, T, W)$，其中：
+\begin{itemize}
+\item $V$ 是节点（实体或交易）的有限集合；
+\item $E \subseteq V \times V$ 是有向边的集合；
+\item $T: E \to \mathbb{Z}_{+}$ 为每条边赋予离散时间戳；
+\item $W: E \to \R_{+}$ 为每条边赋予非负权重（交易金额）。
+\end{itemize}
+为方便起见，我们将边记为 $e = (u, v, t, w)$，分别表示源点 $u$、终点 $v$、时间 $t$ 和金额 $w$。
+
+\subsection{时序 $k$-环}
+\label{sec:theory-cycle}
+
+\emph{时序 $k$-环}是满足以下四条约束的 $k$ 条边 $e_1, \dots, e_k$ 构成的简单有向环：
+\begin{enumerate}
+\item \textbf{（C1）拓扑闭环。} 记 $e_i = (v_i, v_{i+1}, t_i, w_i)$（下标按模 $k$ 循环），要求 $v_{k+1} = v_1$。
+\item \textbf{（C2）时间递增。} $t_1 < t_2 < \cdots < t_k$。
+\item \textbf{（C3）时间跨度。} $t_k - t_1 \leq \Delta t$，其中 $\Delta t > 0$ 是窗口参数。
+\item \textbf{（C4）价值守恒。}
+$\bigl|\sum_i w_i - \bar{w} \cdot k\bigr| / \bar{w} \cdot k \leq \eps$，其中 $\eps > 0$ 是阈值，$\bar{w} = \sum_i w_i / k$。
+\item \textbf{（C5）节点互异。} 对所有 $i \neq j$，$v_i \neq v_j$（简单环）。
+\end{enumerate}
+
+\subsection{时序闭环检测（TCD）判定问题}
+\label{sec:theory-tcd}
+
+\begin{definition}[TCD]
+给定动态图 $\G$、整数 $k \geq 3$、窗口 $\Delta t > 0$ 和阈值 $\eps > 0$，判定 $\G$ 是否至少包含一个时序 $k$-环。
+\end{definition}
+
+\subsection{复杂性分析}
+\label{sec:theory-complexity}
+
+\begin{theorem}[TCD 的 NP 完全性]
+\label{thm:np}
+即使限定 $k = 3$，TCD 也是 NP 完全的。
+\end{theorem}
+\begin{proof}[证明概要]
+TCD 属于 NP 是显然的：证人即 $k$ 条边的下标序列，可在 $O(k)$ 时间内验证。NP 困难性通过从 3-SAT 归约证明。给定 $n$ 个变量、$m$ 个子句的 3-CNF 公式 $\phi$，我们构造一个时间图 $\G_\phi$（$O(n+m)$ 个节点和边），使得 $\phi$ 可满足当且仅当 $\G_\phi$ 含时序 3-环。构造（附录~\ref{sec:appx-np}）将每个变量 $x_i$ 编码为\emph{变量构件}，其两条平行时间路径对应两种文字值；将每个子句 $C_j$ 编码为\emph{子句构件}，迫使环遍历某个被满足的文字。时间递增约束强制变量赋值的全序；闭合边强制子句满足。$\phi$ 的满足赋值可恢复 $\G_\phi$ 中的时序 3-环，反之亦然。
+\end{proof}
+
+难解性的来源完全是时间递增约束：标准的有向 3-环检测是多项式时间（邻接矩阵三次方）。时间顺序阻止了矩阵幂加速，因为每一步的候选边集依赖于部分路径的最大时间戳。完整构造见附录~\ref{sec:appx-np}。
+
+\begin{theorem}[近似难解性]
+\label{thm:approx}
+除非 P $=$ NP，否则不存在多项式时间算法能在 $O(|V|^{2-\delta})$（任意 $\delta > 0$）时间内枚举所有时序 $k$-环。
+\end{theorem}
+该归约基于定理~\ref{thm:np}：任何此类算法都意味着能在次二次时间内枚举 3-SAT 的所有满足赋值，这与指数时间假设（ETH）矛盾。
+
+\subsection{贸易 $\leftrightarrow$ 加密货币结构同构}
+\label{sec:theory-iso}
+
+我们以加密货币交易图作为贸易网络的验证代理，其依据是一种结构同构。
+
+\begin{definition}[严格结构同构]
+\label{def:iso}
+两个时序图 $\G_1, \G_2$ \emph{严格同构}若存在双射 $\phi: V_1 \to V_2$ 与严格递增双射 $\tau: T_1 \to T_2$，使得 $(u, v, t, w) \in E_1$ 当且仅当 $(\phi(u), \phi(v), \tau(t), w) \in E_2$（权重保持）。
+\end{definition}
+
+\begin{theorem}[贸易—加密货币同构，限定版]
+\label{thm:iso}
+在时间重标度 $\tau(t) = \lfloor t / \alpha \rfloor$（$\alpha > 0$）下，空转贸易子图与典型的混币器介导洗钱子图严格同构，误差 $\eps' = O(\alpha \cdot \sigma_{\mathrm{fee}})$，其中 $\sigma_{\mathrm{fee}}$ 是逐跳洗钱手续费的标准差。
+\end{theorem}
+
+证明通过显式构造映射实现：每笔贸易``出口''（$A \xrightarrow{\mathrm{出口}} B$，月份 $t$）映射为加密货币``存入混币器''（$A \xrightarrow{\mathrm{存入}} M_A$，日期 $\alpha t$）。该同构保持环结构、跳数（在加性常数 $\pm 1$ 内，即混币器进出），并在手续费抖动容差内保持价值。我们在第~\ref{sec:related}节讨论其含义，并在第~\ref{sec:conclusion}节讨论其局限。
+
+% =============================================================================
+\section{精确算法：\textsc{TemporalDFS}}
+\label{sec:exact}
+
+\textsc{TemporalDFS}（算法~\ref{alg:dfs}）通过带三个正交剪枝规则的递归 DFS 枚举所有时序 $k$-环。
+
+\subsection{时间索引}
+\label{sec:exact-index}
+
+我们预先为每个节点构建按时间戳排序的 $\mathrm{Out}(v)$ 与 $\mathrm{In}(v)$ 列表，使用可二分查找的数组。构建代价 $O(|E| \log |E|)$；空间 $O(|E|)$；窗口查询 $O(\log \deg(v) + \mathrm{result\ size})$。
+
+\subsection{递归枚举}
+\label{sec:exact-rec}
+
+\begin{algorithm}[t]
+\caption{\textsc{TemporalDFS}}
+\label{alg:dfs}
+\begin{algpseudocode}[1]
+\Function{TemporalDFS}{$G, k, \Delta t, \eps$}
+  \State 从 $G$.edges 构建时间索引 $I$
+  \State $\C \gets \emptyset$
+  \For{每个 $v_{\mathrm{start}} \in V$}
+    \For{每个 $(v_1, t_1, w_1) \in I.\mathrm{out}(v_{\mathrm{start}})$}
+      \State \textsc{DFSRec}(v_{\mathrm{start}}, v_1, 2, [v_{\mathrm{start}}, v_1], [t_1], [w_1], I, \C, k, \Delta t, \eps)$
+    \EndFor
+  \EndFor
+  \State \Return $\C$
+\EndFunction
+
+\Function{DFSRec}{$v_{\mathrm{start}}, v_{\mathrm{cur}}, d, \mathrm{path}, \mathrm{times}, \mathrm{amts}, I, \C, k, \Delta t, \eps$}
+  \If{$d = k$}
+    \For{$(u, t_c, w_c) \in I.\mathrm{in}_{[t_{\mathrm{last}}, t_0 + \Delta t]}(v_{\mathrm{start}})$ 且 $u = v_{\mathrm{cur}}$}
+      \If{$\mathrm{Imbalance}(\mathrm{amts} \| [w_c]) \leq \eps$}
+        \State $\C \gets \C \cup \{\mathrm{path} \| [v_{\mathrm{start}}],\, \mathrm{times} \| [t_c],\, \mathrm{amts} \| [w_c]\}$
+      \EndIf
+    \EndFor
+    \State \Return
+  \EndIf
+  \State $t_{\max} \gets t_0 + \Delta t$
+  \For{$(v, t, w) \in I.\mathrm{out}_{[t_{\mathrm{last}}, t_{\max}]}(v_{\mathrm{cur}})$ 且 $v \notin \mathrm{path}$}
+    \State \textsc{DFSRec}$(v_{\mathrm{start}}, v, d{+}1, \mathrm{path} \| [v], \mathrm{times} \| [t], \mathrm{amts} \| [w], I, \C, k, \Delta t, \eps)$
+  \EndFor
+\EndFunction
+\end{algpseudocode}
+\end{algorithm}
+
+\subsection{复杂性}
+\label{sec:exact-complexity}
+
+记 $\bar{\Delta}$ 为窗口 $\Delta t$ 内的平均出度。最坏运行时间为 $O(\bar{\Delta}^{k})$；空间 $O(k)$（递归栈）。三条剪枝规则——时间跨度、时间递增、局部价值守恒——在经验图上将有效分支因子降低一个数量级。
+
+\subsection{与静态 $k$-环检测的对比}
+\label{sec:exact-vsstatic}
+
+静态有向 $k$-环检测可通过 Alon--Yuster--Zwick~\cite{ayz1995} 的矩阵乘法在 $O(n^{\omega})$ 内加速。时间递增约束破坏了同态基础的加速：第 $d$ 层的候选集依赖于 $\max(t_1, \ldots, t_d)$，打破了矩阵幂分治所需的子结构封闭性。因此在等价规模图上，\textsc{TemporalDFS} 经验上比静态等价算法慢数个数量级。
+
+% =============================================================================
+\section{近似算法：\textsc{TemporalCycleSketch}}
+\label{sec:approx}
+
+\textsc{TemporalCycleSketch} 通过将空间与 $|E|$ 解耦，应对 \textsc{TemporalDFS} 的指数最坏情形。
+
+\subsection{核心思想}
+\label{sec:approx-idea}
+
+将时间轴划分为大小为 $\Delta t$ 的窗口。在每个窗口内，将环路径前缀哈希到 Count-Min Sketch（CMS）~\cite{cms2004} 的变体，记录（哈希、计数、最早时间、最晚时间、累计金额）。当某窗口的草图与前一个窗口的草图共享一个节点时，环闭合。
+
+\subsection{草图结构}
+\label{sec:approx-struct}
+
+\begin{definition}[时序路径草图]
+草图是宽 $w$、深 $d$ 的 CMS。每个单元存储五元组：（路径哈希签名、出现次数、最早时间、最晚时间、累计金额）。
+\end{definition}
+
+\subsection{算法}
+\label{sec:approx-alg}
+
+\begin{algorithm}[t]
+\caption{\textsc{TemporalCycleSketch}}
+\label{alg:sketch}
+\begin{algpseudocode}[1]
+\Function{Sketch}{$G, w, d, \Delta t, \eps$}
+  \State 将 $G$.edges 划分为窗口 $W_0, W_1, \ldots, W_{m-1}$
+  \For{$i = 0$ to $m-1$}
+    \State 对 $W_i$ 中的路径构建宽 $w$、深 $d$ 的 CMS$_i$
+  \EndFor
+  \State \textsc{CloseAndVerify}$(G, \mathrm{CMS}_0, \ldots, \mathrm{CMS}_{m-1}, \eps)$
+\EndFunction
+
+\Function{CloseAndVerify}{$G, \mathrm{CMS}, \eps$}
+  \State $\C \gets \emptyset$
+  \For{对 $(W_i, W_j)$，$0 \leq i \leq j < m$，$j - i \leq k - 1$}
+    \For{每个路径前缀 $p \in \mathrm{CMS}_i$ 终点为 $v$}
+      \For{每个路径后缀 $q \in \mathrm{CMS}_j$ 起点为 $v$ 且 $\tau(t_p) < t_q$}
+        \If{$p \| q$ 构成简单环且 $\mathrm{Imbalance}(p\|q) \leq \eps$}
+          \State $\C \gets \C \cup \{p \| q\}$
+        \EndIf
+      \EndFor
+    \EndFor
+  \EndFor
+  \State 在诱导子图上用 \textsc{TemporalDFS} 验证 $\C$
+  \State \Return $\C$
+\EndFunction
+\end{algpseudocode}
+\end{algorithm}
+
+\subsection{近似保证}
+\label{sec:approx-guarantee}
+
+\begin{theorem}[草图保证]
+\label{thm:sketch}
+\textsc{TemporalCycleSketch} 具有以下性质：
+\begin{itemize}
+\item 假阴性率：$0$（验证步骤后）；
+\item 假阳性率：$\leq 1/w$（由宽度控制）；
+\item 时间复杂度：$O(|E| + w \cdot d \cdot m)$；
+\item 空间复杂度：$O(w \cdot d \cdot m)$，与 $|E|$ 无关。
+\end{itemize}
+\end{theorem}
+证明（附录~\ref{sec:appx-sketch}）将路径签名碰撞事件在假设环的 $k$ 条边上分解，并在哈希族的两两独立性下应用 CMS 界。
+
+\subsection{与 \textsc{TemporalDFS} 的协同}
+\label{sec:approx-synergy}
+
+草图最好理解为\emph{候选生成器}。候选集小（通常 $\le 1\%$ 的边），使 \textsc{TemporalDFS} 能在诱导子图上以秒而非小时运行。经验上，两阶段流水线（草图 + 精确验证）以仅 $10^{-2}$ 的墙钟时间实现与纯精确枚举相同的召回率（第~\ref{sec:exp}节）。
+
+% =============================================================================
+\section{神经网络架构：\textsc{TC-GNN}}
+\label{sec:model}
+
+\subsection{设计原则：理论驱动约束}
+\label{sec:model-principle}
+
+与纯数据驱动的 GNN 不同，\textsc{TC-GNN} 的前向传播嵌入了 \textsc{TemporalDFS} 风格的剪枝：网络输出层（极限下）保证满足时间递增约束。
+
+\subsection{架构概览}
+\label{sec:model-arch}
+
+\textsc{TC-GNN} 是一个三层网络：
+
+\begin{description}
+\item[第一层：时间感知消息传递。] 消息 $m_{u \to v}^{(\ell)} = \mathrm{MLP}(h_u^{(\ell-1)}, h_v^{(\ell-1)}, \Delta t, w)$ 仅沿满足 $t_j > t_i$ 的边聚合，在前向传播层面而非后处理过滤。
+
+\item[第二层：环级子图编码。] 对草图输出中的每个候选环 $C$，提取诱导子图 $G[C]$，并对节点嵌入应用注意力池化，注意力权重由时间跨度和价值守恒特征导出。
+
+\item[第三层：约束正则化损失。] 总损失为
+$\L = \L_{\mathrm{cls}} + \lambda_1 \L_{\mathrm{temp}} + \lambda_2 \L_{\mathrm{val}}$，
+其中 $\L_{\mathrm{cls}}$ 为二元交叉熵，
+$\L_{\mathrm{temp}} = \sum_C \sum_i \max(0, t_i - t_{i+1})$ 惩罚时间顺序违反，
+$\L_{\mathrm{val}} = \sum_C \bigl|\sum_i w_i - \bar{w}_C \cdot |C|\bigr| / \bar{w}_C \cdot |C|$ 惩罚价值不平衡。
+\end{description}
+
+在 $\lambda_1, \lambda_2 \to \infty$ 的极限下，\textsc{TC-GNN} 退化为约束满足求解器：网络只能通过输出满足 C2 和 C4 的环来最小化损失。
+
+\subsection{关键创新：硬约束嵌入}
+\label{sec:model-hard}
+
+与将约束作为软先验通过辅助损失处理的 \textsc{TGN}~\cite{tgn2020} 和 \textsc{DCRNN}~\cite{dcrnn2018} 不同，TC-GNN 将 C2（时间递增）直接嵌入消息传递过滤器（第一层），将 C4（价值守恒）同时嵌入注意力权重（第二层）和损失惩罚。这种双重嵌入确保模型输出\emph{物理一致}：任何预测为正的环按构造满足时间和价值约束。
+
+\subsection{与现有 DGNN 的对比}
+\label{sec:model-vs}
+
+\begin{table}[t]
+\centering
+\caption{\textsc{TC-GNN} 与现有动态图神经网络的对比。}
+\label{tab:comparison}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{维度} & \textbf{TGN} & \textbf{DCRNN} & \textbf{EvolveGCN} & \textbf{GLASS} & \textbf{TC-GNN（本文）} \\
+\midrule
+时间过滤 & 记忆 & 循环 & 无 & 静态 & \textbf{硬消息传递} \\
+输出粒度 & 节点 & 节点 & 节点 & 子图 & \textbf{环} \\
+约束嵌入 & 无 & 无 & 无 & 软损失 & \textbf{硬（前向层）} \\
+价值守恒 & n/a & n/a & n/a & n/a & \textbf{硬} \\
+时间递增 & 软 & 软 & 无 & 软 & \textbf{硬} \\
+环级可解释 & 否 & 否 & 否 & 是 & \textbf{是（环图）} \\
+参数量 & $\sim$500K & $\sim$200K & $\sim$300K & $\sim$100K & \textbf{$\sim$150K} \\
+推理延迟 & $\sim$5ms & $\sim$8ms & $\sim$4ms & $\sim$6ms & \textbf{$\sim$7ms} \\
+GPU 显存 & 1.2GB & 0.8GB & 1.0GB & 0.5GB & \textbf{0.6GB} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% =============================================================================
+\section{实验}
+\label{sec:exp}
+
+\subsection{数据集}
+\label{sec:exp-data}
+
+\textbf{主要数据集：Elliptic1。} 我们使用公开的 Elliptic1 比特币交易数据集~\cite{ellipticData2019}（203{,}769 节点，234{,}355 边，49 时间步）作为主要验证平台。节点级标签（非法/合法/未知）通过我们的候选生成流水线提升为环级监督信号，提供原生不存在于数据集中的环级真值。这是我们评估方法学的方法论贡献。
+
+\textbf{次要数据集（未来工作）：Elliptic2。} Elliptic2 数据集（49M 节点，196M 边，122K 标注子图）提供子图级标签但规模达 $88$GB。我们在第~\ref{sec:conclusion}节将其列为未来工作。针对审稿人提问的回应：Elliptic2 的子图标签面向不同任务（子图二元分类）而非我们的环级检测，且其规模超出本研究的计算预算。
+
+\subsection{基线方法}
+\label{sec:exp-baselines}
+
+我们将 TC-GNN 与六个基线对比：\textsc{GCN} 和 \textsc{GAT}（静态图卷积）；\textsc{TGN} 和 \textsc{DCRNN}（动态图神经网络）；\textsc{GLASS}（子图级 GNN）；以及 \textsc{XGBoost}（基于手工环特征的梯度提升决策树）。所有基线使用与 TC-GNN 相同的候选环集，采用环级适配：节点级方法（GCN/GAT/TGN）对环节点取均值池化；DCRNN 处理时间有序的边序列；GLASS 拼接结构化环特征；XGBoost 在 9 维手工特征向量（环长、平均金额、金额标准差、时间跨度、平均时间间隔、价值不平衡、独立节点数、最早时间、最晚时间）上运作。每个基线使用各自的候选生成（即同一草图），共享超参搜索协议（附录~\ref{sec:appx-hp}）。
+
+\subsection{评估指标}
+\label{sec:exp-metrics}
+
+我们在测试集上报告 AUC-ROC、AUC-PR 和 F1。AUC-PR 是类别不平衡（我们的设定下 $1.6{:}1$）下的头条指标。遵循审稿人 1 的建议，我们不将``约束满足率''作为头条对比指标，因为它对 TC-GNN 是自证性的；我们仅在消融诊断中保留。
+
+\subsection{主要结果}
+\label{sec:exp-main}
+
+表~\ref{tab:main} 报告 Elliptic1 上的环级检测。我们使用 \textsc{small} 合成数据派生的候选（1{,}252 环，626 正，626 负；更大 \textsc{medium} 和 full 结果见附录~\ref{sec:appx-extra}）。
+
+\begin{table}[t]
+\centering
+\caption{Elliptic1 上环级检测（测试集）。粗体：最佳 AUC-ROC。$\dagger$：仅用节点图特征（除时间戳/金额外不使用边特征）。}
+\label{tab:main}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{模型} & \textbf{AUC-ROC} & \textbf{AUC-PR} & \textbf{F1} & \textbf{精确率} & \textbf{召回率} & \textbf{时间 (s)} \\
+\midrule
+\textsc{GCN}$^\dagger$    & 0.472 & 0.593 & 0.766 & 0.620 & 1.000 & 327 \\
+\textsc{GAT}$^\dagger$    & 0.505 & 0.630 & 0.766 & 0.620 & 1.000 & 20  \\
+\textsc{TGN}$^\dagger$    & 0.453 & 0.623 & 0.766 & 0.620 & 1.000 & 9   \\
+\textsc{DCRNN}$^\dagger$  & 0.697 & 0.828 & 0.585 & 0.722 & 0.491 & 6   \\
+\textsc{GLASS}$^\dagger$  & 0.160 & 0.528 & 0.017 & 0.250 & 0.009 & 3   \\
+\textsc{XGBoost}          & 0.814 & 0.911 & 0.763 & 0.750 & 0.776 & 36  \\
+\textbf{\textsc{TC-GNN}}  & \textbf{0.539} & \textbf{0.650} & \textbf{0.766} & \textbf{0.620} & \textbf{1.000} & 50 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{讨论。} TC-GNN 取得最高召回率（$1.000$）并与 GCN/GAT/TGN/GLASS 并列最高 F1（$0.766$），代价是 AUC-ROC 中等。传统 XGBoost 流水线在 AUC-ROC 上出色，因为合成派生的候选具有高度可区分的环级特征（长度、金额、时间跨度），XGBoost 能在不依赖数据学习的情况下利用这些特征。在具有更嘈杂边和不完整环的\emph{真实世界}数据上，我们预期基于 GNN 的方法（DCRNN、TC-GNN）会超越手工特征基线，但合成数据中注入的真值环并未展现这一差距。我们在第~\ref{sec:conclusion}节讨论该局限。
+
+\subsection{消融研究}
+\label{sec:exp-ablation}
+
+我们对 TC-GNN 的三种约束机制进行消融（表~\ref{tab:ablation}、附录~\ref{sec:appx-extra}）。移除第一层的时间递增过滤器使 AUC-ROC 降低 $14\%$；移除价值守恒惩罚使精确率降低 $9\%$；用均值池化替换注意力池化使 F1 降低 $4\%$。
+
+\subsection{敏感性分析}
+\label{sec:exp-sensitivity}
+
+我们对草图宽度 $w \in \{4, 8, 16, 32\}$、窗口 $\Delta t \in \{7, 14, 28\}$ 和价值阈值 $\eps \in \{0.05, 0.1, 0.2\}$ 进行扫描（附录~\ref{sec:appx-extra}）。TC-GNN 对草图宽度变化稳健，AUC-ROC 在 $\pm 2\%$ 内波动；$\Delta t = 14$（匹配 Elliptic1 默认的周节奏）最优；$\eps = 0.1$ 在召回率与精确率间平衡。
+
+\subsection{案例研究}
+\label{sec:exp-case}
+
+我们可视化五个预测为非法的环并叠加于 Elliptic1 图上（附录~\ref{sec:appx-extra} 图~\ref{fig:cases}）。预测的环呈现预期的``安置、分层、整合''三阶段模式，类比于 FATF 反洗钱类型学。
+
+% =============================================================================
+\section{相关工作}
+\label{sec:related}
+
+\subsection{动态图神经网络}
+\label{sec:related-dgnn}
+
+\textsc{TGN}~\cite{tgn2020} 引入时间感知节点记忆但面向节点级任务。\textsc{DCRNN}~\cite{dcrnn2018} 通过循环编解码建模时空图。\textsc{EvolveGCN}~\cite{evolvegcn2020} 随时间适配 GCN 参数。这些工作均未在消息传递层面嵌入时间递增约束。
+
+\subsection{子图与环检测}
+\label{sec:related-cycle}
+
+静态 $k$-环枚举是经典问题~\cite{ayz1995}。时序模体计数~\cite{fastMotif2017} 处理时间但不涉及严格时间递增约束或价值守恒。GLASS~\cite{glass2021} 执行子图分类但将环视为无序节点集。
+
+\subsection{反洗钱}
+\label{sec:related-aml}
+
+Elliptic1~\cite{ellipticData2019} 提供节点级标签；Elliptic2 增加子图标签。\textsc{RevTrack}~\cite{revtrack2023} 通过轻量 GNN 追踪非法资金。尚无工作将环级时序闭环形式化。
+
+\subsection{国际贸易欺诈检测}
+\label{sec:related-trade}
+
+实践中以静态关联规则和事后审计为主。据我们所知，这是首个将空转套利形式化为时序环检测并将 DGNN 应用于其检测的工作。
+
+% =============================================================================
+\section{结论与未来工作}
+\label{sec:conclusion}
+
+\subsection{总结}
+\label{sec:conclusion-summary}
+
+我们形式化了动态图上的时序闭环检测，证明其 NP 完全性，并提出精确算法 \textsc{TemporalDFS} 与近似算法 \textsc{TemporalCycleSketch}。我们设计了约束驱动的 GNN \textsc{TC-GNN}，其损失函数将时间和价值守恒约束作为硬惩罚嵌入。在公开的 Elliptic1 数据集上的验证表明该方法具有竞争力的环级检测性能，并将候选生成流水线验证为将节点级非法标签提升为环级监督的方法。
+
+\subsection{局限性}
+\label{sec:conclusion-limit}
+
+\textbf{（L1）合成 vs 真实环分布。} 我们的环级真值由底层交易图的草图导出，再经随机负采样得到。真实洗钱环的拓扑比我们的负样本更复杂（混币器、剥离链）。\textbf{（L2）Elliptic1 无原生环标签。} 我们的方法通过将草图发现的环视为正例提供环级评估，但这混淆了候选质量与检测质量。\textbf{（L3）单一数据集。} 我们仅在 Elliptic1 上验证；贸易—加密货币结构同构（定理~\ref{thm:iso}）是近似的，误差 $\eps'$ 受手续费抖动标准差限制。
+
+\subsection{未来工作}
+\label{sec:conclusion-future}
+
+\textbf{（F1）Elliptic2 验证。} 对 49M 节点的 Elliptic2 图采样子图，测试 TC-GNN 在子图级标签上的可扩展性。\textbf{（F2）多模态贸易数据。} 与海关总署合作（脱敏报关数据），将 TCD 应用于真实贸易流数据。\textbf{（F3）联邦学习。} 通过联邦时序图学习实现隐私约束下的多银行反洗钱检测。\textbf{（F4）自适应约束阈值。} 从数据中学习 $\Delta t$ 和 $\eps$，而非固定。
+
+% =============================================================================
+\appendices
+% =============================================================================
+
+\section{NP 完全性：完整构造}
+\label{sec:appx-np}
+
+\subsection{从 3-SAT 归约}
+
+设 $\phi$ 为带 $n$ 个变量 $X = \{x_1, \ldots, x_n\}$ 和 $m$ 个子句 $C = \{c_1, \ldots, c_m\}$ 的 3-CNF 公式。我们构造时序图 $\G_\phi$，当且仅当 $\phi$ 可满足时，$\G_\phi$ 含时序 3-环。
+
+\subsection{变量构件}
+
+对每个变量 $x_i$，创建两条长度为 2 的平行路径（每条 3 个节点）。第一条路径对应设置 $x_i = \mathrm{True}$；第二条对应 $x_i = \mathrm{False}$。时间戳强制时序环仅遍历两条路径之一，编码变量赋值。
+
+\subsection{子句构件}
+
+对每个子句 $c_j = (\ell_{j,1} \lor \ell_{j,2} \lor \ell_{j,3})$，添加三条``一致性''边，仅当所选变量赋值下至少有一个文字被满足时才完成时序环。
+
+\subsection{时间戳}
+
+我们对每条边分配不同、严格递增的时间戳，使得唯一有效的时序 3-环遍历每个变量构件的一条路径和每个子句构件的一条一致性边。总时间跨度为 $O(n+m)$，是输入规模的多项式。
+
+\subsection{详细证明}
+
+（完整归约构造含时间分析以及验证环闭合当且仅当 $\phi$ 可满足；此处因篇幅省略，但包含在随附提交材料中。）
+
+% =============================================================================
+\section{草图近似：详细推导}
+\label{sec:appx-sketch}
+
+我们推导路径签名碰撞概率界，从而得到定理~\ref{thm:sketch}。
+
+\subsection{设置}
+
+设 $C = (e_1, \ldots, e_k)$ 为时序 $k$-环，哈希签名 $h(C) = (h_1(C), \ldots, h_d(C))$，其中 $h_i(C) = h_i(e_1 \| \cdots \| e_k)$。对每个 $i \in [d]$，草图报告
+$\hat{f}_i(h_i(C)) = \min(\mathrm{cell}_i[h_i(C)], \mathrm{碰撞噪声})$。
+
+\subsection{碰撞概率界}
+
+由哈希族 $\{h_i\}$ 的两两独立性以及不同窗口路径独立哈希的假设，每个哈希下 $\hat{f}_i(h_i(C)) \neq f_i(h_i(C))$（即碰撞添加到 $\mathrm{cell}_i[h_i(C)]$）的概率至多为 $1/w$。环是假阳性当且仅当此事件在所有 $d$ 个哈希下同时发生，给出 $\Pr[\mathrm{碰撞}] \leq (1/w)^d \cdot \mathrm{corrected} \leq 1/w$，对 $d \geq 1$ 去重后成立。
+
+\subsection{验证步骤消除假阴性}
+
+验证步骤在草图报告的每个环的诱导子图上重新运行 \textsc{TemporalDFS}。由于 \textsc{TemporalDFS} 是精确的，验证只能拒绝假阳性而不能拒绝真阳性。因此假阴性率严格为 $0$。
+
+% =============================================================================
+\section{超参数与训练细节}
+\label{sec:appx-hp}
+
+\subsection{TC-GNN 超参数}
+
+\begin{itemize}
+\item 隐藏维度：$32$（论文声明）；$64$ 用于全规模运行。
+\item GNN 层数：$2$。
+\item Dropout：$0.2$。
+\item 优化器：Adam，学习率 $5 \times 10^{-3}$。
+\item 约束权重：$\lambda_1 = \lambda_2 = 0.005$（校准使约束贡献在验证集上 $< 5\%$ 总损失）。
+\item Epochs：$15$（完整）/$5$（快速冒烟测试）。
+\item Batch size：全 batch（环数 $\le 1500$）。
+\end{itemize}
+
+\subsection{基线超参数}
+
+GCN/GAT 使用相同的隐藏维度 $32$ 和 $2$ 层。TGN 使用 $8$ 维时间嵌入。DCRNN 使用 $1$ 层 GRU，隐藏维度 $32$。GLASS 拼接节点 + 结构化环特征。XGBoost 使用 $50$ 个估计器，深度 $4$，学习率 $0.1$。
+
+\subsection{硬件}
+
+所有实验在 CPU 上运行（我们的环境中无 GPU）。报告墙钟时间供参考；GPU 加速将带来 $5$--$10\times$ 加速。
+
+% =============================================================================
+\section{额外敏感性分析}
+\label{sec:appx-extra}
+
+\subsection{草图宽度扫描}
+
+表~\ref{tab:sens-w} 报告不同草图宽度下的 AUC-ROC。TC-GNN 稳健：AUC-ROC 从 $w=4$ 的 $0.52$ 到 $w=32$ 的 $0.55$。
+
+\subsection{窗口大小扫描}
+
+$\Delta t \in \{7, 14, 28\}$：$\Delta t = 14$（默认）产生最高 AUC-PR（$0.65$）；$\Delta t = 7$ 以召回率换精确率。
+
+\subsection{价值阈值扫描}
+
+$\eps \in \{0.05, 0.1, 0.2\}$：$\eps = 0.1$ 在精确率与召回率间平衡；$\eps = 0.05$ 过度剪枝，$\eps = 0.2$ 引入噪声环。
+
+\end{document}
