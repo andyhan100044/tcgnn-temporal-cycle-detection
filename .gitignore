@@ -48,10 +48,19 @@ Thumbs.db
 # Project-specific (raw data, large artifacts)
 data/elliptic2/raw/
 data/elliptic2/processed/
+data/elliptic1/raw/
+data/elliptic1/synthetic_placeholder/
+data/elliptic1/processed/
 results/raw_runs/
 results/checkpoints/*.pt
 *.parquet
 *.csv.bak
+*.npz
+
+# Local scratch / temp downloads
+.tmp/
+*.tmp
+scratch/
 
 # Credentials (NEVER commit)
 .git-credentials
