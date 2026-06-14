@@ -152,7 +152,8 @@ def main(epochs=10, db_path="data/elliptic1.db", out_dir="results", n_max=None):
     print(f"    train={len(train)}, val={len(val)}, test={len(test)}")
 
     print("[3] Build compact features via SQL (only nodes in candidates)...")
-    feats, node_id_map = build_compact_features_from_db(db_path, candidates, dim=16)
+    feats, node_id_map = build_compact_features_from_db(db_path, candidates, dim=165,
+                                                       use_real_features=True)
     feats_tensor = torch.tensor(feats, dtype=torch.float32)
     identity_map = {i: i for i in range(len(node_id_map))}
     train = remap_cycles(train, node_id_map)

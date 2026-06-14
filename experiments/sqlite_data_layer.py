@@ -399,8 +399,14 @@ def build_compact_features_from_db(
     candidates: List[Dict],
     dim: int = 16,
     seed: int = 0,
+    use_real_features: bool = True,
+    features_parquet: str = "data/elliptic1/processed/features.parquet",
 ) -> Tuple[np.ndarray, Dict[int, int]]:
     """Build features only for nodes that appear in candidates (memory-efficient).
+
+    If use_real_features=True, loads the 165-dim Elliptic1 features from
+    the processed parquet file. Otherwise falls back to 7-dim hand-crafted
+    stats from the SQLite metadata.
 
     db_or_conn: either a sqlite3.Connection or a path string.
     """
@@ -414,8 +420,33 @@ def build_compact_features_from_db(
     if n_compact == 0:
         return np.zeros((0, dim)), {}
 
-    # Fetch metadata for all compact nodes in one query
     tx_ids = list(node_id_map.keys())
+
+    if use_real_features:
+        # Load real 165-dim features from parquet
+        try:
+            import pandas as pd
+            full_feats = pd.read_parquet(features_parquet,
+                                          columns=["txId"] + [f"f{i}" for i in range(1, 166)])
+            # Filter to compact nodes only (fast lookup via index)
+            full_feats_indexed = full_feats.set_index("txId")
+            feats_arr = np.zeros((n_compact, 165), dtype=np.float32)
+            for tx_id in tx_ids:
+                if tx_id in full_feats_indexed.index:
+                    feats_arr[node_id_map[tx_id]] = full_feats_indexed.loc[tx_id].values.astype(np.float32)
+            # Replace any NaN/Inf with 0
+            feats_arr = np.nan_to_num(feats_arr, nan=0.0, posinf=0.0, neginf=0.0)
+            # If dim differs (e.g., for backward compat), pad/truncate
+            if feats_arr.shape[1] < dim:
+                pad = rng.standard_normal((n_compact, dim - feats_arr.shape[1])) * 0.1
+                feats_arr = np.concatenate([feats_arr, pad], axis=1)
+            elif feats_arr.shape[1] > dim:
+                feats_arr = feats_arr[:, :dim]
+            return feats_arr, node_id_map
+        except Exception as e:
+            print(f"[warn] failed to load real features: {e}; falling back to hand-crafted")
+
+    # Fallback: hand-crafted 7-dim features from SQLite metadata
     if isinstance(db_or_conn, str):
         with sqlite_conn(db_or_conn) as conn:
             meta = get_node_metadata(conn, tx_ids)

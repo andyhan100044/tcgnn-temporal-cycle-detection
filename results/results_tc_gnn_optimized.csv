@@ -1,2 +1,2 @@
 n_samples,n_positive,n_negative,auc_roc,auc_pr,f1,precision,recall,model,train_time_sec
-150,54,96,0.6666666666666666,0.5749440715883668,0.5,1.0,0.3333333333333333,"TC-GNN-opt(h=32,focal=True)",5.73
+150,54,96,0.6388888888888888,0.585081585081585,0.5294117647058824,0.36,1.0,"TC-GNN-opt(h=64,focal=True,thr=0.3)",7.35

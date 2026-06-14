@@ -232,7 +232,8 @@ def evaluate(y_true, y_proba, threshold=0.5):
 
 
 def main(epochs=30, db_path="data/elliptic1.db", hidden_dim=64,
-         use_focal=True, lambda_temp=0.01, lambda_val=0.01, out_dir="results"):
+         use_focal=True, lambda_temp=0.01, lambda_val=0.01, out_dir="results",
+         threshold: float = 0.5):
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     print(f"[1] Loading candidates from {db_path}...")
     with sqlite_conn(db_path) as conn:
@@ -240,12 +241,18 @@ def main(epochs=30, db_path="data/elliptic1.db", hidden_dim=64,
     print(f"    total: {len(candidates)}")
 
     train, val, test = temporal_split(candidates)
-    feats, node_id_map = build_compact_features_from_db(db_path, candidates, dim=16)
+    feats, node_id_map = build_compact_features_from_db(db_path, candidates, dim=165,
+                                                       use_real_features=True)
+    # Z-score normalize features (helps TC-GNN's linear input projection)
+    feats_mean = feats.mean(axis=0, keepdims=True)
+    feats_std  = np.clip(feats.std(axis=0, keepdims=True), 1e-6, None)
+    feats = (feats - feats_mean) / feats_std
     feats = torch.tensor(feats, dtype=torch.float32)
     identity = {i: i for i in range(len(node_id_map))}
     train = remap_cycles(train, node_id_map)
     val   = remap_cycles(val, node_id_map)
     test  = remap_cycles(test, node_id_map)
+    print(f"    features shape: {feats.shape} (z-score normalized)")
 
     print(f"\n[2] Optimized TC-GNN training (hidden={hidden_dim}, focal={use_focal}, "
           f"lambda_temp={lambda_temp}, lambda_val={lambda_val})...")
@@ -257,8 +264,8 @@ def main(epochs=30, db_path="data/elliptic1.db", hidden_dim=64,
     )
     train_time = time.time() - t0
 
-    metrics = evaluate([c["label"] for c in test], test_proba)
-    metrics["model"] = f"TC-GNN-opt(h={hidden_dim},focal={use_focal})"
+    metrics = evaluate([c["label"] for c in test], test_proba, threshold=threshold)
+    metrics["model"] = f"TC-GNN-opt(h={hidden_dim},focal={use_focal},thr={threshold})"
     metrics["train_time_sec"] = round(train_time, 2)
 
     print(f"\n[3] Test metrics:")
@@ -282,10 +289,12 @@ if __name__ == "__main__":
     p.add_argument("--no-focal", action="store_true")
     p.add_argument("--lambda-temp", type=float, default=0.01)
     p.add_argument("--lambda-val", type=float, default=0.01)
+    p.add_argument("--threshold", type=float, default=0.5)
     p.add_argument("--db", type=str, default="data/elliptic1.db")
     p.add_argument("--out-dir", type=str, default="results")
     args = p.parse_args()
     main(args.epochs, args.db, args.hidden_dim,
          use_focal=not args.no_focal,
          lambda_temp=args.lambda_temp, lambda_val=args.lambda_val,
-         out_dir=args.out_dir)
+         out_dir=args.out_dir,
+         threshold=args.threshold)
