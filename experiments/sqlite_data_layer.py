@@ -384,6 +384,72 @@ def generate_negative_cycles_db(
 
             insert_candidate(conn, 0, nodes, ts, amts, value_imbalance=imb)
             inserted += 1
+
+    elif mode == "realistic_aml":
+        # Realistic AML false-positive patterns
+        # 30% Refund chains, 25% Exchange routing, 25% Time-jittered,
+        # 20% Long-cycle near-miss
+        while inserted < n_cycles and attempts < max_attempts:
+            attempts += 1
+            roll = rng.random()
+
+            if roll < 0.30:
+                # PATTERN A: Refund chain (k=2, A -> B -> A)
+                if len(licit) < 2:
+                    continue
+                a, b = rng.choice(licit, size=2, replace=False)
+                t0 = int(rng.integers(1, 46))
+                ts = [t0, t0 + int(rng.integers(1, 5))]
+                base = float(rng.uniform(50, 5000))
+                jitter = float(np.exp(rng.normal(0, 0.02)))
+                amts = [base, base * jitter]
+                imb = abs(amts[0] - amts[1]) / max(np.mean(amts), 1e-9)
+                insert_candidate(conn, 0, [int(a), int(b)], ts, amts,
+                                 value_imbalance=float(imb))
+
+            elif roll < 0.55:
+                # PATTERN B: Exchange routing (k=4)
+                if len(licit) < 4:
+                    continue
+                a, hub, b, hub2 = rng.choice(licit, size=4, replace=False)
+                t0 = int(rng.integers(1, 42))
+                ts = sorted([t0, t0 + 1, t0 + 3, t0 + 5])
+                base = float(rng.uniform(100, 1000))
+                amts = [base * float(np.exp(rng.normal(0, 0.04))) for _ in range(4)]
+                imb = float(np.abs(np.array(amts) - np.mean(amts)).max() / np.mean(amts))
+                insert_candidate(conn, 0, [int(a), int(hub), int(b), int(hub2)],
+                                 ts, amts, value_imbalance=imb)
+
+            elif roll < 0.80:
+                # PATTERN C: Time-jittered legitimate cycle
+                k = int(rng.integers(cycle_len_range[0], cycle_len_range[1] + 1))
+                if len(licit) < k:
+                    continue
+                nodes = [int(n) for n in rng.choice(licit, size=k, replace=False)]
+                win = 30
+                t0 = int(rng.integers(1, 18))
+                ts = sorted([int(t) for t in rng.choice(
+                    range(t0, t0 + win + 1), size=k, replace=False)])
+                amts = [float(a) for a in rng.uniform(20, 2000, size=k)]
+                imb = float(np.abs(np.array(amts) - np.mean(amts)).max() / np.mean(amts))
+                insert_candidate(conn, 0, nodes, ts, amts, value_imbalance=imb)
+
+            else:
+                # PATTERN D: Long-cycle near-miss (k=5-7)
+                k = int(rng.integers(5, 8))
+                if len(licit) < k:
+                    continue
+                nodes = [int(n) for n in rng.choice(licit, size=k, replace=False)]
+                win = 30
+                t0 = int(rng.integers(1, 18))
+                ts = sorted([int(t) for t in rng.choice(
+                    range(t0, t0 + win + 1), size=k, replace=False)])
+                base = float(rng.uniform(100, 800))
+                amts = [float(a) for a in base * np.exp(rng.normal(0, 0.10, size=k))]
+                imb = float(np.abs(np.array(amts) - np.mean(amts)).max() / np.mean(amts))
+                insert_candidate(conn, 0, nodes, ts, amts, value_imbalance=imb)
+            inserted += 1
+
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
@@ -491,7 +557,7 @@ if __name__ == "__main__":
     p.add_argument("--negatives", type=int, default=500)
     p.add_argument("--db", type=str, default="data/elliptic1.db")
     p.add_argument("--neg-mode", type=str, default="near_miss",
-                   choices=["random", "near_miss"],
+                   choices=["random", "near_miss", "realistic_aml"],
                    help="Negative generation mode")
     args = p.parse_args()
 

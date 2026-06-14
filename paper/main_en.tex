@@ -773,9 +773,22 @@ embedding) that GNN baselines lack.}
 \centering
 \includegraphics[width=0.45\textwidth]{figures/bootstrap_ci.pdf}
 \caption{Bootstrap $95\%$ confidence intervals (1{,}000 resamples) for
-AUC-ROC across all models. TC-GNN-opt (red) is statistically
-indistinguishable from XGBoost but significantly above all GNN baselines.}
+AUC-ROC across all models under \emph{near-miss} evaluation. TC-GNN-opt
+(red) is statistically indistinguishable from XGBoost but significantly
+above all GNN baselines.}
 \label{fig:bootstrap}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/stress_test.pdf}
+\caption{Stress test: AUC-ROC under \emph{realistic AML false-positive}
+negatives (refund chains, exchange routing, time-jittered legitimate
+cycles, long-cycle near-misses). TC-GNN-opt collapses to $\sim 0.53$
+because its hard constraint embedding cannot distinguish
+constraint-satisfying cycles on illicit vs licit nodes. Models combining
+constraints with node features (GAT, GCN, GLASS) retain their advantage.}
+\label{fig:stress}
 \end{figure}
 
 % =============================================================================
@@ -837,18 +850,76 @@ naturally present in Bitcoin transactions (which form a DAG). We inject
 synthetic laundering cycles to evaluate detection. While this isolates
 the model frommatural-background effects, it may understate the
 complexity of real-world cycles (mixers, peel chains, gas-fee obfuscation).
-\textbf{(L2)} Constraint-violating negatives. Our negative class uses
-random walks that violate one or more of C1--C5. This makes the
-classification task easier than the realistic case where negatives look
-almost-positively circular. DCRNN and XGBoost's high scores partly
-reflect this. Future work will use legitimate near-miss patterns as
-negatives. \textbf{(L3)} SQLite memory constraints, not theoretical.
+
+\textbf{(L2)} Constraint-satisfying negatives \emph{look like positives}.
+Our second-tier negative class uses realistic AML false-positive patterns:
+refund chains, exchange-routed cycles, time-jittered legitimate flows,
+and long-cycle near-misses (Table~\ref{tab:realistic}). Under this
+\emph{harder} evaluation, TC-GNN's AUC-ROC collapses from $0.962$ to
+$0.530$ --- statistically indistinguishable from random. The reason
+is structural: TC-GNN's hard constraint embedding cannot distinguish
+\emph{constraint-satisfying} cycles on illicit nodes from those on
+licit nodes. Models that combine constraint awareness with rich node
+features (GAT, GCN, GLASS) maintain their lead ($0.87$--$0.99$), since
+they exploit the $165$-dimensional Elliptic1 features. We discuss this
+as future work for \textsc{TC-GNN}2 in Section~\ref{sec:conclusion-future}.
+
+\textbf{(L3)} SQLite memory constraints, not theoretical.
 Our SQLite backend scales to 5{,}000 candidates on commodity hardware;
 Elliptic2 (49M nodes) would require the same architecture with larger
 disk budget and streaming training. \textbf{(L4)} Single real dataset.
 We validated on Elliptic1 only; the trade-crypto structural isomorphism
 (Theorem~\ref{thm:iso}) is approximate with error $\eps'$ bounded by
 fee-jitter standard deviation.
+
+\subsection{Stress test: realistic AML false-positive patterns}
+\label{sec:exp-stress}
+
+To address the concern that our near-miss negatives are still separable
+from positives, we generate a \emph{realistic AML} negative class using
+four patterns sourced from FATF typologies~\cite{fatfTypologies2022}:
+
+\begin{itemize}
+\item \textbf{Refund chains} ($k{=}2$): customer pays merchant, merchant
+refunds --- the most common AML false positive in exchange data.
+\item \textbf{Exchange routing} ($k{=}4$): $A \to \text{Exchange} \to B
+\to C \to A$ through a central hub.
+\item \textbf{Time-jittered legitimate cycles}: same structure as
+positives but with realistic business time scales (weeks to months).
+\item \textbf{Long-cycle near-misses} ($k{=}5$--$7$): complex legitimate
+business flows with multiple intermediaries.
+\end{itemize}
+
+\begin{table}[t]
+\centering
+\caption{Stress test on realistic AML negatives. TC-GNN's hard
+constraint embedding collapses because many constraint-satisfying
+cycles are legitimate. GAT/GCN/GLASS retain their advantage via the
+165-dim node features.}
+\label{tab:realistic}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{Near-miss AUC-ROC} & \textbf{Realistic AUC-ROC} & $\Delta$ \\
+\midrule
+\textsc{TC-GNN}      & 0.642 & 0.523 & $-0.119$ \\
+\textsc{TC-GNN-opt} & 0.962 & 0.530 & $-0.432$ \\
+\textsc{GCN}         & 0.840 & 0.887 & $+0.047$ \\
+\textsc{GAT}         & 0.831 & 0.871 & $+0.040$ \\
+\textsc{TGN}         & 0.786 & 0.839 & $+0.053$ \\
+\textsc{DCRNN}       & 0.799 & 0.723 & $-0.076$ \\
+\textsc{GLASS}       & 0.888 & 0.988 & $+0.100$ \\
+\textsc{XGBoost}     & 1.000 & 1.000 &  $0.000$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The collapse of TC-GNN under realistic negatives is a structural
+limitation, not a hyperparameter issue. TC-GNN verifies \emph{shape
+constraints} (C1--C5) but does not reason about \emph{provenance} (which
+nodes carry the illicit flag). This motivates our future work
+\textsc{TC-GNN}2 (Section~\ref{sec:conclusion-future}), which will
+combine hard constraint embedding with provenance-aware node features.
 
 \subsection{Future work}
 \label{sec:conclusion-future}
@@ -860,7 +931,11 @@ Administration of Customs (anonymized declarations), apply TCD to real
 trade-flow data. \textbf{(F3) Federated learning.} Multi-bank AML detection
 under privacy constraints via federated temporal graph learning.
 \textbf{(F4) Adaptive constraint thresholds.} Learn $\Delta t$ and $\eps$
-from data rather than fixing them.
+from data rather than fixing them. \textbf{(F5) \textsc{TC-GNN}2 with
+provenance awareness.} Combine hard constraint embedding (C1--C5) with
+provenance-aware node features that distinguish illicit-anchored cycles
+from licit-anchored ones --- addressing the structural limitation exposed
+by our stress test (Section~\ref{sec:exp-stress}).
 
 % =============================================================================
 \appendices

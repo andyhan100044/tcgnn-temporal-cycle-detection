@@ -489,12 +489,51 @@ Elliptic1~\cite{ellipticData2019} 提供节点级标签；Elliptic2 增加子图
 \subsection{局限性}
 \label{sec:conclusion-limit}
 
-\textbf{（L1）合成环注入。} 正类在比特币交易中并非自然存在（其构成 DAG）。我们注入合成洗钱环以评估检测。虽然这能将模型从自然背景效应中隔离出来，但可能低估真实洗钱环的复杂性（混币器、剥离链、Gas 费混淆）。\textbf{（L2）约束违反的负样本。} 我们的负类使用违反 C1--C5 中一条或多条的随机游走。这使分类任务比现实情况更容易——现实中的负样本几乎看起来是正向环形的。DCRNN 和 XGBoost 的高分部分反映这一点。未来工作将使用合法近失配模式作为负样本。\textbf{（L3）SQLite 内存约束，非理论限制。} 我们的 SQLite 后端可在普通硬件上扩展到 5{,}000 候选；Elliptic2（49M 节点）将需要相同架构配以更大磁盘预算和流式训练。\textbf{（L4）单一真实数据集。} 我们仅在 Elliptic1 上验证；贸易—加密货币结构同构（定理~\ref{thm:iso}）是近似的，误差 $\eps'$ 受手续费抖动标准差限制。
+\textbf{（L1）合成环注入。} 正类在比特币交易中并非自然存在（其构成 DAG）。我们注入合成洗钱环以评估检测。虽然这能将模型从自然背景效应中隔离出来，但可能低估真实洗钱环的复杂性（混币器、剥离链、Gas 费混淆）。
+
+\textbf{（L2）约束满足的负样本\emph{看起来像正样本}。} 我们的二级负类使用现实 AML 假阳性模式：退款链、交易所路由、时间扰动的合法流、长环近失配（表~\ref{tab:realistic}）。在更具挑战性的评估下，TC-GNN 的 AUC-ROC 从 $0.962$ 跌至 $0.530$——统计上与随机无显著差异。原因是结构性的：TC-GNN 的硬约束嵌入无法区分在非法节点上的约束满足环和合法节点上的约束满足环。结合约束感知与丰富节点特征的模型（GAT、GCN、GLASS）保持其领先优势（$0.87$--$0.99$），因为它们利用 165 维 Elliptic1 特征。我们在第~\ref{sec:conclusion-future}节中将其作为 \textsc{TC-GNN}2 的未来工作。
+
+\textbf{（L3）SQLite 内存约束，非理论限制。} 我们的 SQLite 后端可在普通硬件上扩展到 5{,}000 候选；Elliptic2（49M 节点）将需要相同架构配以更大磁盘预算和流式训练。\textbf{（L4）单一真实数据集。} 我们仅在 Elliptic1 上验证；贸易—加密货币结构同构（定理~\ref{thm:iso}）是近似的，误差 $\eps'$ 受手续费抖动标准差限制。
+
+\subsection{压力测试：现实 AML 假阳性模式}
+\label{sec:exp-stress}
+
+为应对"近失配负样本仍可与正样本分离"的担忧，我们使用源自 FATF 类型学~\cite{fatfTypologies2022}的四种模式生成\emph{现实 AML}负类：
+
+\begin{itemize}
+\item \textbf{退款链}（$k{=}2$）：客户向商户付款，商户退款——交易所数据中最常见的 AML 假阳性。
+\item \textbf{交易所路由}（$k{=}4$）：$A \to \text{交易所} \to B \to C \to A$ 通过中心枢纽。
+\item \textbf{时间扰动的合法环}：与正样本相同结构但具有现实业务时间尺度（数周到数月）。
+\item \textbf{长环近失配}（$k{=}5$--$7$）：具有多个中介的复杂合法业务流。
+\end{itemize}
+
+\begin{table}[t]
+\centering
+\caption{现实 AML 负样本上的压力测试。TC-GNN 的硬约束嵌入崩溃，因为许多约束满足的环是合法的。GAT/GCN/GLASS 通过 165 维节点特征保持其优势。}
+\label{tab:realistic}
+\small
+\begin{tabular}{lcccc}
+\toprule
+\textbf{模型} & \textbf{近失配 AUC-ROC} & \textbf{现实 AUC-ROC} & $\Delta$ \\
+\midrule
+\textsc{TC-GNN}      & 0.642 & 0.523 & $-0.119$ \\
+\textsc{TC-GNN-opt} & 0.962 & 0.530 & $-0.432$ \\
+\textsc{GCN}         & 0.840 & 0.887 & $+0.047$ \\
+\textsc{GAT}         & 0.831 & 0.871 & $+0.040$ \\
+\textsc{TGN}         & 0.786 & 0.839 & $+0.053$ \\
+\textsc{DCRNN}       & 0.799 & 0.723 & $-0.076$ \\
+\textsc{GLASS}       & 0.888 & 0.988 & $+0.100$ \\
+\textsc{XGBoost}     & 1.000 & 1.000 &  $0.000$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+TC-GNN 在现实负样本下的崩溃是结构性限制，而非超参数问题。TC-GNN 验证\emph{形状约束}（C1--C5）但不推理\emph{来源}（哪些节点携带非法标签）。这激励我们的未来工作 \textsc{TC-GNN}2（第~\ref{sec:conclusion-future}节），它将结合硬约束嵌入与来源感知的节点特征。
 
 \subsection{未来工作}
 \label{sec:conclusion-future}
 
-\textbf{（F1）Elliptic2 验证。} 对 49M 节点的 Elliptic2 图采样子图，测试 TC-GNN 在子图级标签上的可扩展性。\textbf{（F2）多模态贸易数据。} 与海关总署合作（脱敏报关数据），将 TCD 应用于真实贸易流数据。\textbf{（F3）联邦学习。} 通过联邦时序图学习实现隐私约束下的多银行反洗钱检测。\textbf{（F4）自适应约束阈值。} 从数据中学习 $\Delta t$ 和 $\eps$，而非固定。
+\textbf{（F1）Elliptic2 验证。} 对 49M 节点的 Elliptic2 图采样子图，测试 TC-GNN 在子图级标签上的可扩展性。\textbf{（F2）多模态贸易数据。} 与海关总署合作（脱敏报关数据），将 TCD 应用于真实贸易流数据。\textbf{（F3）联邦学习。} 通过联邦时序图学习实现隐私约束下的多银行反洗钱检测。\textbf{（F4）自适应约束阈值。} 从数据中学习 $\Delta t$ 和 $\eps$，而非固定。\textbf{（F5）\textsc{TC-GNN}2 与来源感知。} 将硬约束嵌入（C1--C5）与来源感知的节点特征结合，区分基于非法锚定的循环与基于合法锚定的循环——应对我们压力测试（第~\ref{sec:exp-stress}节）暴露的结构性限制。
 
 % =============================================================================
 \appendices

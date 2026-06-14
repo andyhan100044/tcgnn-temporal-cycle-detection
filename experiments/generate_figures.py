@@ -278,7 +278,7 @@ def fig_ablation():
 
 
 def main():
-    print("[gen_figs] Generating 8 paper figures...")
+    print("[gen_figs] Generating 9 paper figures...")
     fig_architecture()
     fig_case_studies()
     fig_training_curves()
@@ -287,6 +287,7 @@ def main():
     fig_ablation()
     fig_results()
     fig_bootstrap_ci()
+    fig_stress_test()
     print(f"[gen_figs] DONE. All figures in {FIG_DIR}/")
 
 
@@ -347,6 +348,41 @@ def fig_bootstrap_ci():
     plt.savefig(FIG_DIR / "bootstrap_ci.pdf", bbox_inches="tight", format="pdf")
     plt.close()
     print("  -> figures/bootstrap_ci.pdf")
+
+
+def fig_stress_test():
+    """Side-by-side: near-miss vs realistic AML stress test."""
+    models = ["TC-GNN", "TC-GNN-opt", "GCN", "GAT", "TGN", "DCRNN", "GLASS", "XGBoost"]
+    near_miss = [0.642, 0.962, 0.840, 0.831, 0.786, 0.799, 0.888, 1.000]
+    realistic = [0.523, 0.530, 0.887, 0.871, 0.839, 0.723, 0.988, 1.000]
+
+    x = np.arange(len(models))
+    width = 0.38
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    bars1 = ax.bar(x - width/2, near_miss, width, label="Near-miss negatives",
+                    color="#64B5F6", edgecolor="black")
+    bars2 = ax.bar(x + width/2, realistic, width, label="Realistic AML negatives",
+                    color="#E57373", edgecolor="black")
+    ax.set_xticks(x)
+    ax.set_xticklabels(models, fontsize=10, rotation=15)
+    ax.set_ylabel("AUC-ROC")
+    ax.set_title("Stress test: TC-GNN-opt collapses under realistic negatives")
+    ax.set_ylim(0, 1.15)
+    ax.axhline(0.5, ls="--", color="gray", alpha=0.4, label="Random")
+    ax.legend(loc="lower right")
+    ax.grid(alpha=0.3, axis="y")
+
+    # Annotate TC-GNN-opt collapse
+    for bar in [bars2[1]]:
+        h = bar.get_height()
+        ax.annotate("Collapse!", xy=(bar.get_x() + bar.get_width()/2, h + 0.05),
+                    ha="center", color="red", fontweight="bold", fontsize=10)
+
+    plt.tight_layout()
+    plt.savefig(FIG_DIR / "stress_test.pdf", bbox_inches="tight", format="pdf")
+    plt.close()
+    print("  -> figures/stress_test.pdf")
 
 
 if __name__ == "__main__":
