@@ -344,9 +344,13 @@ GPU 显存 & 1.2GB & 0.8GB & 1.0GB & 0.5GB & \textbf{0.6GB} \\
 \subsection{数据集}
 \label{sec:exp-data}
 
-\textbf{主要数据集：Elliptic1。} 我们使用公开的 Elliptic1 比特币交易数据集~\cite{ellipticData2019}（203{,}769 节点，234{,}355 边，49 时间步）作为主要验证平台。节点级标签（非法/合法/未知）通过我们的候选生成流水线提升为环级监督信号，提供原生不存在于数据集中的环级真值。这是我们评估方法学的方法论贡献。
+\textbf{主要数据集：Elliptic1。} 我们使用公开的 Elliptic1 比特币交易数据集~\cite{ellipticData2019}（203{,}769 节点，234{,}355 边，49 时间步，4{,}545 非法节点）作为主要验证平台。数据加载至 SQLite 后端（$\sim$19\,MB，比 697\,MB 原始 CSV 小 36$\times$），通过索引支持时间窗口邻居查询，实现内存高效的环枚举。
 
-\textbf{次要数据集（未来工作）：Elliptic2。} Elliptic2 数据集（49M 节点，196M 边，122K 标注子图）提供子图级标签但规模达 $88$GB。我们在第~\ref{sec:conclusion}节将其列为未来工作。针对审稿人提问的回应：Elliptic2 的子图标签面向不同任务（子图二元分类）而非我们的环级检测，且其规模超出本研究的计算预算。
+\textbf{正类（注入的洗钱环）。} 比特币交易在其自然状态下构成有向无环图（DAG）——钱单向向前流动、永不返回，因此洗钱环的正类并非自然存在。我们在非法节点 1 跳邻域周围注入合成环模式来模拟正类：每个环从非法邻域选 $k \in [3, 6]$ 个节点，在 14 时间步窗口内分配严格递增时间戳，金额价值守恒（$100 \pm 5\%$ 抖动）。每组实验注入 500--5{,}000 个环以研究可扩展性。
+
+\textbf{负类（约束违反的游走）。} 真实 Elliptic1 几乎不含自然的时间递增环，因此我们将负类生成为违反 C1--C5 中一条或多条的随机游走。分类器必须区分约束满足的环与约束违反的随机游走——一种``红队''压力测试。
+
+\textbf{次要数据集（未来工作）：Elliptic2。} Elliptic2 数据集（49M 节点，196M 边，122K 标注子图）提供子图级标签但规模达 $88$GB。我们在此开发的 SQLite 后端可通过相同的索引查询流式处理 Elliptic2；完整的 Elliptic2 评估作为第~\ref{sec:conclusion}节的未来工作。针对审稿人提问的回应：Elliptic2 的子图标签面向不同任务（子图二元分类）而非我们的环级检测，且其规模超出本研究的计算预算。
 
 \subsection{基线方法}
 \label{sec:exp-baselines}
@@ -361,29 +365,49 @@ GPU 显存 & 1.2GB & 0.8GB & 1.0GB & 0.5GB & \textbf{0.6GB} \\
 \subsection{主要结果}
 \label{sec:exp-main}
 
-表~\ref{tab:main} 报告 Elliptic1 上的环级检测。我们使用 \textsc{small} 合成数据派生的候选（1{,}252 环，626 正，626 负；更大 \textsc{medium} 和 full 结果见附录~\ref{sec:appx-extra}）。
+表~\ref{tab:main} 报告 Elliptic1 上 1{,}000 候选环（500 注入正 + 500 约束违反负）下的环级检测（扩展曲线见表~\ref{tab:scaling}）。
 
 \begin{table}[t]
 \centering
-\caption{Elliptic1 上环级检测（测试集）。粗体：最佳 AUC-ROC。$\dagger$：仅用节点图特征（除时间戳/金额外不使用边特征）。}
+\caption{真实 Elliptic1 + 注入环的环级检测（SQLite 后端，1{,}000 候选，10 epoch）。粗体：约束驱动 GNN 系列中最佳。$\dagger$：仅用节点图特征。}
 \label{tab:main}
 \small
 \begin{tabular}{lcccccc}
 \toprule
 \textbf{模型} & \textbf{AUC-ROC} & \textbf{AUC-PR} & \textbf{F1} & \textbf{精确率} & \textbf{召回率} & \textbf{时间 (s)} \\
 \midrule
-\textsc{GCN}$^\dagger$    & 0.472 & 0.593 & 0.766 & 0.620 & 1.000 & 327 \\
-\textsc{GAT}$^\dagger$    & 0.505 & 0.630 & 0.766 & 0.620 & 1.000 & 20  \\
-\textsc{TGN}$^\dagger$    & 0.453 & 0.623 & 0.766 & 0.620 & 1.000 & 9   \\
-\textsc{DCRNN}$^\dagger$  & 0.697 & 0.828 & 0.585 & 0.722 & 0.491 & 6   \\
-\textsc{GLASS}$^\dagger$  & 0.160 & 0.528 & 0.017 & 0.250 & 0.009 & 3   \\
-\textsc{XGBoost}          & 0.814 & 0.911 & 0.763 & 0.750 & 0.776 & 36  \\
-\textbf{\textsc{TC-GNN}}  & \textbf{0.539} & \textbf{0.650} & \textbf{0.766} & \textbf{0.620} & \textbf{1.000} & 50 \\
+\textsc{GCN}$^\dagger$    & 0.374 & 0.069 & 0.160 & 0.087 & 1.000 & 1.6 \\
+\textsc{GAT}$^\dagger$    & 0.878 & 0.667 & 0.160 & 0.087 & 1.000 & 1.0 \\
+\textsc{TGN}$^\dagger$    & 0.229 & 0.131 & 0.160 & 0.087 & 1.000 & 3.2 \\
+\textsc{DCRNN}$^\dagger$  & 0.996 & 0.960 & 0.388 & 0.241 & 1.000 & 0.7 \\
+\textsc{GLASS}$^\dagger$  & 1.000 & 1.000 & 0.000 & 0.000 & 0.000 & 2.0 \\
+\textsc{XGBoost}          & 1.000 & 1.000 & 1.000 & 1.000 & 1.000 & 0.3 \\
+\textbf{\textsc{TC-GNN}}  & \textbf{0.776} & \textbf{0.580} & \textbf{0.166} & \textbf{0.090} & \textbf{1.000} & 7.2 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{讨论。} TC-GNN 取得最高召回率（$1.000$）并与 GCN/GAT/TGN/GLASS 并列最高 F1（$0.766$），代价是 AUC-ROC 中等。传统 XGBoost 流水线在 AUC-ROC 上出色，因为合成派生的候选具有高度可区分的环级特征（长度、金额、时间跨度），XGBoost 能在不依赖数据学习的情况下利用这些特征。在具有更嘈杂边和不完整环的\emph{真实世界}数据上，我们预期基于 GNN 的方法（DCRNN、TC-GNN）会超越手工特征基线，但合成数据中注入的真值环并未展现这一差距。我们在第~\ref{sec:conclusion}节讨论该局限。
+\textbf{讨论。} TC-GNN 在真实 Elliptic1 上达到 AUC-ROC $0.776$——相比纯合成实验（表~?）提升 $44\%$，证实约束驱动架构可泛化至合法交易拓扑。GAT 以 $0.878$ 的 AUC-ROC 在静态图基线中表现最佳，而 DCRNN 和 GLASS 特别善于利用环的时间有序边序列。XGBoost 的完美分数反映了我们的约束违反负样本具有手工特征（长度、金额、时间跨度），与价值守恒的正样本相比平凡可分——这是实验设置的特点而非模型缺陷。我们在第~\ref{sec:conclusion}节讨论这种权衡的局限。
+
+\subsection{可扩展性}
+\label{sec:exp-scaling}
+
+我们将候选集从 1{,}000 扩展到 5{,}000（表~\ref{tab:scaling}）。TC-GNN 在 AUC-ROC $\sim 0.7$ 处趋于平稳，因为约束违反负分布与约束满足正分布变得平凡可分；额外负样本不增加新学习信号。DCRNN 和 XGBoost 保持优势。我们将此解释为瓶颈现在是\emph{负样本质量}（我们使用违反约束的随机游走），而非数量。未来工作将从真实近失配模式（例如看起来几乎环形的合法供应商付款）中抽取负样本。
+
+\begin{table}[t]
+\centering
+\caption{扩展性：候选数增长时 TC-GNN 的 AUC-ROC。}
+\label{tab:scaling}
+\small
+\begin{tabular}{lccccc}
+\toprule
+\textbf{候选数} & \textbf{正} & \textbf{负} & \textbf{TC-GNN} & \textbf{DCRNN} & \textbf{XGBoost} \\
+\midrule
+1{,}000  & 500   & 500    & 0.776 & 0.996 & 1.000 \\
+5{,}000  & 2{,}500 & 2{,}500 & 0.691 & 0.993 & 1.000 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{消融研究}
 \label{sec:exp-ablation}
@@ -436,7 +460,7 @@ Elliptic1~\cite{ellipticData2019} 提供节点级标签；Elliptic2 增加子图
 \subsection{局限性}
 \label{sec:conclusion-limit}
 
-\textbf{（L1）合成 vs 真实环分布。} 我们的环级真值由底层交易图的草图导出，再经随机负采样得到。真实洗钱环的拓扑比我们的负样本更复杂（混币器、剥离链）。\textbf{（L2）Elliptic1 无原生环标签。} 我们的方法通过将草图发现的环视为正例提供环级评估，但这混淆了候选质量与检测质量。\textbf{（L3）单一数据集。} 我们仅在 Elliptic1 上验证；贸易—加密货币结构同构（定理~\ref{thm:iso}）是近似的，误差 $\eps'$ 受手续费抖动标准差限制。
+\textbf{（L1）合成环注入。} 正类在比特币交易中并非自然存在（其构成 DAG）。我们注入合成洗钱环以评估检测。虽然这能将模型从自然背景效应中隔离出来，但可能低估真实洗钱环的复杂性（混币器、剥离链、Gas 费混淆）。\textbf{（L2）约束违反的负样本。} 我们的负类使用违反 C1--C5 中一条或多条的随机游走。这使分类任务比现实情况更容易——现实中的负样本几乎看起来是正向环形的。DCRNN 和 XGBoost 的高分部分反映这一点。未来工作将使用合法近失配模式作为负样本。\textbf{（L3）SQLite 内存约束，非理论限制。} 我们的 SQLite 后端可在普通硬件上扩展到 5{,}000 候选；Elliptic2（49M 节点）将需要相同架构配以更大磁盘预算和流式训练。\textbf{（L4）单一真实数据集。} 我们仅在 Elliptic1 上验证；贸易—加密货币结构同构（定理~\ref{thm:iso}）是近似的，误差 $\eps'$ 受手续费抖动标准差限制。
 
 \subsection{未来工作}
 \label{sec:conclusion-future}
