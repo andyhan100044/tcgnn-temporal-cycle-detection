@@ -311,24 +311,81 @@ def generate_negative_cycles_db(
     n_cycles: int = 500,
     cycle_len_range: Tuple[int, int] = (3, 5),
     seed: int = 42,
+    mode: str = "near_miss",  # "random" | "near_miss"
 ) -> int:
-    """Generate negative cycles (constraint-violating)."""
+    """Generate negative cycles.
+
+    Modes:
+      random:    random walks that violate constraints (trivially separable)
+      near_miss: realistic near-miss patterns (legitimate circular supplier payments
+                 + constraint-satisfying cycles around non-illicit nodes)
+                 - much harder for the classifier to distinguish
+    """
     rng = np.random.default_rng(seed)
     licit = get_licit_node_ids(conn)
     inserted = 0
     attempts = 0
-    max_attempts = n_cycles * 10
+    max_attempts = n_cycles * 20
 
-    while inserted < n_cycles and attempts < max_attempts:
-        attempts += 1
-        k = int(rng.integers(cycle_len_range[0], cycle_len_range[1] + 1))
-        nodes = [int(n) for n in rng.choice(licit, size=k, replace=False)]
-        # Time NOT strictly increasing (constraint violation)
-        ts = [int(t) for t in rng.choice(range(1, 49), size=k, replace=False)]
-        # Value imbalanced
-        amts = [float(a) for a in rng.uniform(1, 1000, size=k)]
-        insert_candidate(conn, 0, nodes, ts, amts, value_imbalance=1.0)
-        inserted += 1
+    if mode == "random":
+        # Original: trivially-separable random walks
+        while inserted < n_cycles and attempts < max_attempts:
+            attempts += 1
+            k = int(rng.integers(cycle_len_range[0], cycle_len_range[1] + 1))
+            nodes = [int(n) for n in rng.choice(licit, size=k, replace=False)]
+            ts = [int(t) for t in rng.choice(range(1, 49), size=k, replace=False)]
+            amts = [float(a) for a in rng.uniform(1, 1000, size=k)]
+            insert_candidate(conn, 0, nodes, ts, amts, value_imbalance=1.0)
+            inserted += 1
+    elif mode == "near_miss":
+        # Build a "supplier cycle" subgraph from licit/unknown nodes
+        # Pattern: 3 types of negatives
+        # Type A (40%): Constraint-SATISFYING cycles around non-illicit nodes
+        #              (look identical to positives except no illicit flags)
+        # Type B (40%): Slight constraint violations (1 time step out of order,
+        #              or 10-20% value jitter instead of 5%)
+        # Type C (20%): Trivially violating (original random walks)
+        while inserted < n_cycles and attempts < max_attempts:
+            attempts += 1
+            k = int(rng.integers(cycle_len_range[0], cycle_len_range[1] + 1))
+            nodes = [int(n) for n in rng.choice(licit, size=k, replace=False)]
+            roll = rng.random()
+
+            if roll < 0.4:
+                # Type A: constraint-satisfying but on licit nodes (most subtle)
+                win = max(14, k - 1)
+                t0 = int(rng.integers(1, 49 - win - 1))
+                ts = sorted([int(t) for t in rng.choice(
+                    range(t0, t0 + win + 1), size=k, replace=False)])
+                # Value-conserving like positives (~$100 ± 5%)
+                base = float(rng.uniform(50, 200))
+                amts = [float(a) for a in base * np.exp(rng.normal(0, 0.05, size=k))]
+                imb = float(np.abs(np.array(amts) - np.mean(amts)).max() / np.mean(amts))
+            elif roll < 0.8:
+                # Type B: Slight constraint violations (looks almost-valid)
+                win = max(14, k - 1)
+                t0 = int(rng.integers(1, 49 - win - 1))
+                # Mostly increasing but with 1 swap
+                ts = sorted([int(t) for t in rng.choice(
+                    range(t0, t0 + win + 1), size=k, replace=False)])
+                if len(ts) >= 2 and rng.random() < 0.5:
+                    # Swap two consecutive to break monotonicity
+                    i = int(rng.integers(0, len(ts) - 1))
+                    ts[i], ts[i + 1] = ts[i + 1], ts[i]
+                base = float(rng.uniform(50, 200))
+                # Higher jitter (10-25%)
+                amts = [float(a) for a in base * np.exp(rng.normal(0, 0.20, size=k))]
+                imb = float(np.abs(np.array(amts) - np.mean(amts)).max() / np.mean(amts))
+            else:
+                # Type C: trivially violating (original)
+                ts = [int(t) for t in rng.choice(range(1, 49), size=k, replace=False)]
+                amts = [float(a) for a in rng.uniform(1, 1000, size=k)]
+                imb = 1.0
+
+            insert_candidate(conn, 0, nodes, ts, amts, value_imbalance=imb)
+            inserted += 1
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
 
     conn.commit()
     return inserted
@@ -402,6 +459,9 @@ if __name__ == "__main__":
     p.add_argument("--inject", type=int, default=500, help="N positive cycles to inject")
     p.add_argument("--negatives", type=int, default=500)
     p.add_argument("--db", type=str, default="data/elliptic1.db")
+    p.add_argument("--neg-mode", type=str, default="near_miss",
+                   choices=["random", "near_miss"],
+                   help="Negative generation mode")
     args = p.parse_args()
 
     if args.build_db:
@@ -417,7 +477,9 @@ if __name__ == "__main__":
         print("[setup] injecting positive cycles...")
         n_pos = inject_synthetic_cycles_db(conn, n_cycles=args.inject)
         print(f"    inserted {n_pos} positive cycles (+ their edges into edges table)")
-        print("[setup] generating negative cycles...")
-        n_neg = generate_negative_cycles_db(conn, n_cycles=args.negatives)
+        print(f"[setup] generating negative cycles (mode={args.neg_mode})...")
+        n_neg = generate_negative_cycles_db(
+            conn, n_cycles=args.negatives, mode=args.neg_mode,
+        )
         print(f"    inserted {n_neg} negative cycles")
         print(f"[setup] DONE. {n_pos} pos, {n_neg} neg candidates in DB.")
