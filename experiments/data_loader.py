@@ -82,11 +82,11 @@ def load_real_elliptic1(raw_dir: str = "data/elliptic1/raw") -> TemporalGraph:
     """Load real Elliptic1 from Kaggle CSVs.
 
     Expected files:
-      - elliptic_txs_features.csv (txId, time_step, f1..f166)
-      - elliptic_txs_edgelist.csv (txId1, txId2)
-      - elliptic_txs_classes.csv (txId, class)
+      - elliptic_txs_features.csv: NO HEADER, col1=txId, col2=time_step, col3..col167=f1..f165
+      - elliptic_txs_edgelist.csv: (txId1, txId2)
+      - elliptic_txs_classes.csv: (txId, class as string "1"/"2"/"unknown")
 
-    Class mapping: 1=illicit, 2=licit, 3=unknown -> remapped to 1, 0, 2.
+    Class mapping: "1"->1 illicit, "2"->0 licit, "unknown"->2.
     """
     p = Path(raw_dir)
     if not p.exists():
@@ -96,32 +96,34 @@ def load_real_elliptic1(raw_dir: str = "data/elliptic1/raw") -> TemporalGraph:
         )
 
     classes_raw = pd.read_csv(p / "elliptic_txs_classes.csv")
-    class_map = {1: 1, 2: 0, 3: 2}  # raw -> our convention
-    classes_raw["class"] = classes_raw["class"].map(class_map)
+    class_map = {"1": 1, "2": 0, "unknown": 2}
+    classes_raw["class_str"] = classes_raw["class"].astype(str).str.strip()
+    classes_raw["class"] = classes_raw["class_str"].map(class_map)
+    classes_raw = classes_raw.drop(columns=["class_str"])
 
     edges_raw = pd.read_csv(p / "elliptic_txs_edgelist.csv")
-    features = pd.read_csv(p / "elliptic_txs_features.csv")
+    # Real Elliptic1 features.csv has NO HEADER; col1=txId, col2=time_step
+    features = pd.read_csv(p / "elliptic_txs_features.csv", header=None)
+    features.columns = ["txId", "time_step"] + [f"f{i}" for i in range(1, features.shape[1] - 1)]
 
     # Real Elliptic1 lacks: explicit timestamps on edges, amounts, ground-truth cycles.
     # We infer:
     #   - time_step per edge: max(time_step(txId1), time_step(txId2)) (causal approximation)
-    #   - amount: 1.0 placeholder (or compute from features if available)
-    #   - ground_truth cycles: none — must be derived via our TemporalCycleSketch + illicit node clustering
+    #   - amount: 1.0 placeholder (Elliptic1 has no amounts)
 
     tx_t = features.groupby("txId")["time_step"].first().to_dict()
     edges = edges_raw.copy()
     edges["time_step"] = edges.apply(
         lambda r: max(tx_t.get(r["txId1"], 0), tx_t.get(r["txId2"], 0)), axis=1
     )
-    edges["amount"] = 1.0  # Elliptic1 has no amounts; placeholder
+    edges["amount"] = 1.0
 
-    nodes = classes_raw.rename(columns={"txId": "txId"}).copy()
-    nodes = nodes[["txId", "class"]]
+    nodes = classes_raw[["txId", "class"]].copy()
 
     return TemporalGraph(
         name="elliptic1_real",
         edges=edges, nodes=nodes, features=features,
-        ground_truth_cycles=[],  # to be computed by candidate-generation step
+        ground_truth_cycles=[],
         metadata={"source": "kaggle/ellipticco/elliptic-data-set",
                   "note": "amounts placeholder, ground-truth cycles derived"},
     )

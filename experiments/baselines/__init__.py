@@ -21,6 +21,7 @@ import torch.nn.functional as F
 def build_adjacency(cycles: List[Dict], n_nodes: int, device) -> torch.Tensor:
     """Build a sparse (n_nodes, n_nodes) adjacency from cycle edges.
 
+    Note: `cycles[i]['nodes']` are expected to be LOCAL indices (0..n_nodes-1).
     Symmetrize to make Laplacian symmetric.
     """
     rows, cols = [], []
@@ -66,23 +67,18 @@ class GCNBaseline(nn.Module):
 
     def forward(self, cycles, node_features, node_id_map):
         device = node_features.device
-        n_nodes = max(max(c["nodes"]) for c in cycles) + 1 if cycles else 0
-        n_nodes = max(n_nodes, node_features.shape[0])
+        n_nodes = node_features.shape[0]  # use compact size from caller
         A = build_adjacency(cycles, n_nodes, device)
         A_norm = symmetric_normalize(A + torch.eye(n_nodes, device=device))
 
         h = self.in_proj(node_features)
-        # Zero-pad to n_nodes
-        if h.shape[0] < n_nodes:
-            pad = torch.zeros(n_nodes - h.shape[0], h.shape[1], device=device)
-            h = torch.cat([h, pad], dim=0)
         for layer in self.layers:
             h = F.relu(layer(A_norm @ h))
 
-        # Mean-pool cycle nodes
+        # Mean-pool cycle nodes (cycles[i]['nodes'] are LOCAL compact indices)
         cycle_emb = []
         for c in cycles:
-            ids = [node_id_map[n] for n in c["nodes"]]
+            ids = c["nodes"]  # already compact via caller-side remap
             cycle_emb.append(h[ids].mean(dim=0))
         cycle_emb = torch.stack(cycle_emb, dim=0)
         return self.classifier(cycle_emb)
@@ -108,12 +104,8 @@ class GATBaseline(nn.Module):
 
     def forward(self, cycles, node_features, node_id_map):
         device = node_features.device
-        n_nodes = max(max(c["nodes"]) for c in cycles) + 1 if cycles else 0
-        n_nodes = max(n_nodes, node_features.shape[0])
+        n_nodes = node_features.shape[0]
         h = self.in_proj(node_features)
-        if h.shape[0] < n_nodes:
-            pad = torch.zeros(n_nodes - h.shape[0], h.shape[1], device=device)
-            h = torch.cat([h, pad], dim=0)
 
         # Sparse adjacency indices
         A = build_adjacency(cycles, n_nodes, device)
