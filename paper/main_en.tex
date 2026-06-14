@@ -42,7 +42,8 @@
 \markboth{IEEE Transactions on Neural Networks and Learning Systems}%
 {[Author Name] et~al.\:Temporal Cycle Detection in Trade Networks}
 
-\maketitle
+\usepackage{graphicx}
+\graphicspath{{figures/}}
 
 % =============================================================================
 \begin{abstract}
@@ -664,6 +665,74 @@ We visualize five predicted illicit cycles overlaid on the Elliptic1 graph
 (Figures~\ref{fig:cases} in Appendix~\ref{sec:appx-extra}). Predicted
 cycles exhibit the expected ``placement, layering, integration'' three-phase
 pattern analogous to FATF money-laundering typologies.
+
+% =============================================================================
+% =============================================================================
+% Figures (visual aids to experiments)
+% =============================================================================
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/architecture.pdf}
+\caption{TC-GNN three-layer architecture. Layer 1: temporal message passing
+filters edges with $t_j > t_i$. Layer 2: cycle-level subgraph encoding via
+attention. Layer 3: constraint-regularized loss with time and value terms.}
+\label{fig:arch}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/case_studies.pdf}
+\caption{Case studies. (\textbf{Left}) Positive: an injected laundering cycle
+with strictly increasing timestamps and value-conserving amounts.
+(\textbf{Right}) Negative (near-miss): a licit circular supplier payment
+with identical structure but no illicit flags.}
+\label{fig:cases}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.42\textwidth]{figures/sensitivity.pdf}
+\caption{TC-GNN AUC-PR sensitivity to sketch width $w$ and time window
+$\Delta t$. The default $(w, \Delta t) = (16, 14)$ maximizes AUC-PR.}
+\label{fig:sensitivity}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/isomorphism.pdf}
+\caption{Trade-crypto structural isomorphism (Theorem~\ref{thm:iso}). Under
+time rescaling $\tau(t) = \lfloor t / \alpha \rfloor$, the round-trip trade
+subgraph and the typical mixer-mediated laundering subgraph are strictly
+isomorphic with bounded error.}
+\label{fig:isomorphism}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/ablation.pdf}
+\caption{TC-GNN ablation study. Removing the time filter (Layer 1) drops
+AUC-ROC by 14\%; removing the value loss drops precision by 9\%;
+replacing attention with mean-pool drops F1 by 4\%.}
+\label{fig:ablation}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/training_curves.pdf}
+\caption{Optimized TC-GNN training curves on real Elliptic1. Early stopping
+on validation AUC-PR prevents overfitting.}
+\label{fig:training}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/results_comparison.pdf}
+\caption{Headline cycle-level detection on real Elliptic1 with near-miss
+evaluation. Optimized TC-GNN closes most of the gap to hand-crafted
+feature baselines (XGBoost) while maintaining theoretical guarantees
+that GNN baselines lack.}
+\label{fig:results}
+\end{figure}
 
 % =============================================================================
 \section{Related work}
