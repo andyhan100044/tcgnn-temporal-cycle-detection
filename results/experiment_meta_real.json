@@ -1,9 +1,0 @@
-{
-  "data_source": "elliptic1_real + injected synthetic cycles",
-  "n_real_nodes": 203769,
-  "n_real_edges": 234355,
-  "n_real_illicit": 4545,
-  "n_injected_cycles": 500,
-  "n_negatives": 500,
-  "epochs": 10
-}
