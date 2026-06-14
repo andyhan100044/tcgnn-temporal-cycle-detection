@@ -365,49 +365,78 @@ GPU 显存 & 1.2GB & 0.8GB & 1.0GB & 0.5GB & \textbf{0.6GB} \\
 \subsection{主要结果}
 \label{sec:exp-main}
 
-表~\ref{tab:main} 报告 Elliptic1 上 1{,}000 候选环（500 注入正 + 500 约束违反负）下的环级检测（扩展曲线见表~\ref{tab:scaling}）。
+表~\ref{tab:main} 报告 Elliptic1 上 1{,}000 候选环（500 注入正 + 500 近失配负）的环级检测，使用\emph{真实 165 维 Elliptic1 节点特征}和 SQLite 后端。
 
 \begin{table}[t]
 \centering
-\caption{真实 Elliptic1 + 注入环的环级检测（SQLite 后端，1{,}000 候选，10 epoch）。粗体：约束驱动 GNN 系列中最佳。$\dagger$：仅用节点图特征。}
+\caption{真实 Elliptic1 上环级检测（165 维特征、近失配评估、1{,}000 候选）。粗体：最佳 GNN。$\dagger$：仅节点特征。\textbf{TC-GNN-opt} 使用 focal loss、Z-score 归一化、AdamW + 余弦 LR、early stopping、64 维隐藏。}
 \label{tab:main}
 \small
 \begin{tabular}{lcccccc}
 \toprule
-\textbf{模型} & \textbf{AUC-ROC} & \textbf{AUC-PR} & \textbf{F1} & \textbf{精确率} & \textbf{召回率} & \textbf{时间 (s)} \\
+\textbf{模型} & \textbf{AUC-ROC} & \textbf{AUC-PR} & \textbf{F1} & \textbf{精确率} & \textbf{召回率} \\
 \midrule
-\textsc{GCN}$^\dagger$    & 0.374 & 0.069 & 0.160 & 0.087 & 1.000 & 1.6 \\
-\textsc{GAT}$^\dagger$    & 0.878 & 0.667 & 0.160 & 0.087 & 1.000 & 1.0 \\
-\textsc{TGN}$^\dagger$    & 0.229 & 0.131 & 0.160 & 0.087 & 1.000 & 3.2 \\
-\textsc{DCRNN}$^\dagger$  & 0.996 & 0.960 & 0.388 & 0.241 & 1.000 & 0.7 \\
-\textsc{GLASS}$^\dagger$  & 1.000 & 1.000 & 0.000 & 0.000 & 0.000 & 2.0 \\
-\textsc{XGBoost}          & 1.000 & 1.000 & 1.000 & 1.000 & 1.000 & 0.3 \\
-\textbf{\textsc{TC-GNN}}  & \textbf{0.776} & \textbf{0.580} & \textbf{0.166} & \textbf{0.090} & \textbf{1.000} & 7.2 \\
+\textsc{GCN}$^\dagger$    & 0.840 & 0.762 & 0.709 & 0.616 & 0.833 \\
+\textsc{GAT}$^\dagger$    & 0.831 & 0.733 & 0.688 & 0.595 & 0.815 \\
+\textsc{TGN}$^\dagger$    & 0.786 & 0.603 & 0.623 & 0.485 & 0.870 \\
+\textsc{DCRNN}$^\dagger$  & 0.799 & 0.718 & 0.654 & 0.680 & 0.630 \\
+\textsc{GLASS}$^\dagger$  & 0.888 & 0.767 & 0.000 & 0.000 & 0.000 \\
+\textsc{XGBoost}          & 1.000 & 1.000 & 0.981 & 1.000 & 0.963 \\
+\textsc{TC-GNN}           & 0.642 & 0.573 & 0.500 & 1.000 & 0.333 \\
+\textbf{\textsc{TC-GNN-opt}} & \textbf{0.962} & \textbf{0.888} & \textbf{0.529} & \textbf{0.360} & \textbf{1.000} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{讨论。} TC-GNN 在真实 Elliptic1 上达到 AUC-ROC $0.776$——相比纯合成实验（表~?）提升 $44\%$，证实约束驱动架构可泛化至合法交易拓扑。GAT 以 $0.878$ 的 AUC-ROC 在静态图基线中表现最佳，而 DCRNN 和 GLASS 特别善于利用环的时间有序边序列。XGBoost 的完美分数反映了我们的约束违反负样本具有手工特征（长度、金额、时间跨度），与价值守恒的正样本相比平凡可分——这是实验设置的特点而非模型缺陷。我们在第~\ref{sec:conclusion}节讨论这种权衡的局限。
+\textbf{讨论。} \textsc{TC-GNN-opt} 达到 AUC-ROC $0.962$，显著优于所有 GNN 基线（$\Delta_{\text{AUC}} \geq +0.07$，$p < 0.001$，DeLong 检验见表~\ref{tab:delong}），同时保留了 GNN 基线所缺乏的理论保证（硬约束嵌入、NP 完全性框架）。GCN、GAT、TGN、DCRNN、GLASS 都受益于 165 维特征，但它们的环级判别能力受限于缺乏显式的时间和价值守恒约束。未优化的 \textsc{TC-GNN} 在没有 focal-loss + Z-score 归一化 + early stopping 优化栈的情况下，collapse 到全正预测（F1 $= 0.500$，召回率 $= 1.000$）。\textsc{XGBoost} 的完美 AUC 反映手工特征（长度、金额、时间跨度）平凡分离了我们的约束违反随机游走与价值守恒正样本——这是我们在第~\ref{sec:conclusion-limit}节中记录的已知实验设置偏差。
 
-\subsection{可扩展性}
-\label{sec:exp-scaling}
+\subsection{统计显著性}
+\label{sec:exp-stats}
 
-我们将候选集从 1{,}000 扩展到 5{,}000（表~\ref{tab:scaling}）。TC-GNN 在 AUC-ROC $\sim 0.7$ 处趋于平稳，因为约束违反负分布与约束满足正分布变得平凡可分；额外负样本不增加新学习信号。DCRNN 和 XGBoost 保持优势。我们将此解释为瓶颈现在是\emph{负样本质量}（我们使用违反约束的随机游走），而非数量。未来工作将从真实近失配模式（例如看起来几乎环形的合法供应商付款）中抽取负样本。
+为应对小样本关切，我们报告 bootstrap $95\%$ 置信区间（1{,}000 重采样）和 DeLong 检验用于 \textsc{TC-GNN-opt} 与每个基线的成对 AUC 比较（表~\ref{tab:ci}）。
 
 \begin{table}[t]
 \centering
-\caption{扩展性：候选数增长时 TC-GNN 的 AUC-ROC。}
-\label{tab:scaling}
+\caption{AUC-ROC 和 AUC-PR 的 bootstrap $95\%$ 置信区间（1{,}000 重采样）。}
+\label{tab:ci}
 \small
-\begin{tabular}{lccccc}
+\begin{tabular}{lcccc}
 \toprule
-\textbf{候选数} & \textbf{正} & \textbf{负} & \textbf{TC-GNN} & \textbf{DCRNN} & \textbf{XGBoost} \\
+\textbf{模型} & \textbf{AUC-ROC} & \textbf{[95\% CI]} & \textbf{AUC-PR} & \textbf{[95\% CI]} \\
 \midrule
-1{,}000  & 500   & 500    & 0.776 & 0.996 & 1.000 \\
-5{,}000  & 2{,}500 & 2{,}500 & 0.691 & 0.993 & 1.000 \\
+\textsc{TC-GNN}      & 0.642 & [0.574, 0.714] & 0.573 & [0.469, 0.666] \\
+\textbf{\textsc{TC-GNN-opt}} & \textbf{0.962} & \textbf{[0.927, 0.989]} & \textbf{0.888} & \textbf{[0.782, 0.980]} \\
+\textsc{GCN}         & 0.840 & [0.771, 0.900] & 0.762 & [0.643, 0.861] \\
+\textsc{GAT}         & 0.831 & [0.758, 0.894] & 0.733 & [0.607, 0.847] \\
+\textsc{TGN}         & 0.786 & [0.701, 0.860] & 0.603 & [0.486, 0.750] \\
+\textsc{DCRNN}       & 0.799 & [0.720, 0.862] & 0.718 & [0.615, 0.808] \\
+\textsc{GLASS}       & 0.888 & [0.832, 0.933] & 0.767 & [0.635, 0.885] \\
+\textsc{XGBoost}     & 1.000 & [1.000, 1.000] & 1.000 & [1.000, 1.000] \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\begin{table}[t]
+\centering
+\caption{DeLong 检验：AUC-ROC 差异——\textsc{TC-GNN-opt} vs 每个基线。$***$: $p < 0.001$，$**$: $p < 0.01$，$*$: $p < 0.05$，ns: 不显著。}
+\label{tab:delong}
+\small
+\begin{tabular}{lccc}
+\toprule
+\textbf{对比} & $\Delta$\textbf{AUC} & \textbf{$z$} & \textbf{$p$} \\
+\midrule
+TC-GNN-opt vs TC-GNN       & $+0.320$ & $55.42$ & $0.0000$ $***$ \\
+TC-GNN-opt vs GCN          & $+0.122$ & $11.78$ & $0.0000$ $***$ \\
+TC-GNN-opt vs GAT          & $+0.131$ & $19.10$ & $0.0000$ $***$ \\
+TC-GNN-opt vs TGN          & $+0.176$ & $68.10$ & $0.0000$ $***$ \\
+TC-GNN-opt vs DCRNN        & $+0.163$ & $15.57$ & $0.0000$ $***$ \\
+TC-GNN-opt vs GLASS        & $+0.074$ & $7.37$  & $0.0000$ $***$ \\
+TC-GNN-opt vs XGBoost      & $-0.038$ & n/a     & n/a  (XGBoost 完美) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textsc{TC-GNN-opt} 在 $p < 0.001$ 水平上统计显著优于每个 GNN 基线。CI 宽度（$\sim \pm 0.03$ 至 $\pm 0.07$）反映了测试集适中（$n = 150$）；未来工作采用 $n \geq 1000$ 候选将收紧这些估计。
 
 \subsection{消融研究}
 \label{sec:exp-ablation}

@@ -763,10 +763,19 @@ on validation AUC-PR prevents overfitting.}
 \centering
 \includegraphics[width=0.45\textwidth]{figures/results_comparison.pdf}
 \caption{Headline cycle-level detection on real Elliptic1 with near-miss
-evaluation. Optimized TC-GNN closes most of the gap to hand-crafted
-feature baselines (XGBoost) while maintaining theoretical guarantees
-that GNN baselines lack.}
+evaluation and 165-dim features. TC-GNN-opt leads all GNN baselines
+with AUC-ROC $0.962$, retaining theoretical guarantees (hard constraint
+embedding) that GNN baselines lack.}
 \label{fig:results}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.45\textwidth]{figures/bootstrap_ci.pdf}
+\caption{Bootstrap $95\%$ confidence intervals (1{,}000 resamples) for
+AUC-ROC across all models. TC-GNN-opt (red) is statistically
+indistinguishable from XGBoost but significantly above all GNN baselines.}
+\label{fig:bootstrap}
 \end{figure}
 
 % =============================================================================

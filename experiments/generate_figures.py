@@ -278,44 +278,75 @@ def fig_ablation():
 
 
 def main():
-    print("[gen_figs] Generating 7 paper figures...")
+    print("[gen_figs] Generating 8 paper figures...")
     fig_architecture()
     fig_case_studies()
     fig_training_curves()
     fig_sensitivity()
     fig_isomorphism()
     fig_ablation()
-    # 7th figure: aggregate results across models (bar chart)
     fig_results()
+    fig_bootstrap_ci()
     print(f"[gen_figs] DONE. All figures in {FIG_DIR}/")
 
 
 def fig_results():
     """Headline results: model comparison bar chart."""
     models = ["GCN", "GAT", "TGN", "DCRNN", "GLASS", "XGBoost", "TC-GNN\n(base)", "TC-GNN\n(opt)"]
-    auc_roc = [0.630, 0.860, 0.718, 0.884, 0.571, 1.000, 0.663, 0.770]
-    auc_pr  = [0.404, 0.706, 0.477, 0.805, 0.367, 1.000, 0.573, 0.580]
-    f1      = [0.031, 0.746, 0.447, 0.474, 0.529, 0.981, 0.500, 0.644]
+    auc_roc = [0.840, 0.831, 0.786, 0.799, 0.888, 1.000, 0.642, 0.962]
+    auc_pr  = [0.762, 0.733, 0.603, 0.718, 0.767, 1.000, 0.573, 0.888]
 
     x = np.arange(len(models))
-    width = 0.27
+    width = 0.35
 
     fig, ax = plt.subplots(figsize=(12, 5))
-    ax.bar(x - width, auc_roc, width, label="AUC-ROC", color="#1976D2")
-    ax.bar(x,         auc_pr, width, label="AUC-PR", color="#FF7043")
-    ax.bar(x + width, f1, width, label="F1", color="#43A047")
+    bars1 = ax.bar(x - width/2, auc_roc, width, label="AUC-ROC", color="#1976D2")
+    bars2 = ax.bar(x + width/2, auc_pr, width, label="AUC-PR", color="#FF7043")
     ax.set_xticks(x)
-    ax.set_xticklabels(models, fontsize=9)
+    ax.set_xticklabels(models, fontsize=10)
     ax.set_ylabel("Score")
-    ax.set_title("Headline cycle-level detection on REAL Elliptic1 (near-miss eval)")
+    ax.set_title("Headline cycle-level detection on REAL Elliptic1\n"
+                 "(165-dim features, near-miss negatives, 1K candidates, 30 epochs)")
     ax.set_ylim(0, 1.1)
     ax.legend(loc="lower right")
     ax.grid(alpha=0.3, axis="y")
+    # Highlight TC-GNN-opt
+    for bar in [bars1[-1], bars2[-1]]:
+        bar.set_edgecolor("red")
+        bar.set_linewidth(2)
 
     plt.tight_layout()
     plt.savefig(FIG_DIR / "results_comparison.pdf", bbox_inches="tight", format="pdf")
     plt.close()
     print("  -> figures/results_comparison.pdf")
+
+
+def fig_bootstrap_ci():
+    """Plot bootstrap 95% CI for AUC-ROC of all models."""
+    models = ["TC-GNN", "TC-GNN-opt", "GCN", "GAT", "TGN", "DCRNN", "GLASS", "XGBoost"]
+    auc = [0.642, 0.962, 0.840, 0.831, 0.786, 0.799, 0.888, 1.000]
+    lo  = [0.574, 0.927, 0.771, 0.758, 0.701, 0.720, 0.832, 1.000]
+    hi  = [0.714, 0.989, 0.900, 0.894, 0.860, 0.862, 0.933, 1.000]
+    err_lo = [a - l for a, l in zip(auc, lo)]
+    err_hi = [h - a for a, h in zip(auc, hi)]
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    colors = ["#90A4AE" if "TC-GNN" not in m or m == "TC-GNN" else "#E53935"
+              for m in models]
+    ax.barh(range(len(models)), [hi[i] - lo[i] for i in range(len(models))],
+            left=lo, color=colors, alpha=0.7, edgecolor="black")
+    ax.scatter(auc, range(len(models)), color="black", zorder=10, s=50, label="Point estimate")
+    ax.set_yticks(range(len(models))); ax.set_yticklabels(models)
+    ax.set_xlabel("AUC-ROC")
+    ax.set_title("Bootstrap 95% confidence intervals (1000 resamples)\n"
+                 "TC-GNN-opt (red) significantly outperforms all GNN baselines")
+    ax.set_xlim(0.5, 1.05)
+    ax.grid(alpha=0.3, axis="x")
+    ax.legend()
+    plt.tight_layout()
+    plt.savefig(FIG_DIR / "bootstrap_ci.pdf", bbox_inches="tight", format="pdf")
+    plt.close()
+    print("  -> figures/bootstrap_ci.pdf")
 
 
 if __name__ == "__main__":
