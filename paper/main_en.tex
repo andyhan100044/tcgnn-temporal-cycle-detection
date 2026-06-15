@@ -562,10 +562,10 @@ satisfying cycles from constraint-violating random walks --- a
 labels but at $88$GB scale. The SQLite backend developed here can
 stream-process Elliptic2 via the same indexed queries; we leave the
 full Elliptic2 evaluation as future work in
-Section~\ref{sec:conclusion}. Per reviewer-query response: Elliptic2's
+Section~\ref{sec:conclusion}. We choose this scoping because Elliptic2's
 subgraph labels target a different task (subgraph binary classification)
-than our cycle-level detection, and its scale exceeds the computational
-budget of this study.
+than our cycle-level detection, and its 88\,GB scale exceeds the
+computational budget of this study.
 
 \subsection{Baselines}
 \label{sec:exp-baselines}
@@ -587,10 +587,10 @@ hyperparameter search protocol (Appendix~\ref{sec:appx-hp}).
 \label{sec:exp-metrics}
 
 We report AUC-ROC, AUC-PR, and F1 on the test set. AUC-PR is the
-headline metric under class imbalance (1.6:1 in our setup). Following
-Reviewer 1's guidance we omit ``constraint-satisfaction rate'' as a
-headline comparison metric because it is self-fulfilling for TC-GNN; we
-retain it only as an ablation diagnostic.
+headline metric under class imbalance (1.6:1 in our setup). We omit
+``constraint-satisfaction rate'' as a headline comparison metric because
+it is self-fulfilling for TC-GNN; we retain it only as an ablation
+diagnostic.
 
 \subsection{Main results}
 \label{sec:exp-main}

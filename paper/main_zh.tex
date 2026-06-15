@@ -356,7 +356,7 @@ GPU 显存 & 1.2GB & 0.8GB & 1.0GB & 0.5GB & \textbf{0.6GB} \\
 
 \textbf{负类（约束违反的游走）。} 真实 Elliptic1 几乎不含自然的时间递增环，因此我们将负类生成为违反 C1--C5 中一条或多条的随机游走。分类器必须区分约束满足的环与约束违反的随机游走——一种``红队''压力测试。
 
-\textbf{次要数据集（未来工作）：Elliptic2。} Elliptic2 数据集（49M 节点，196M 边，122K 标注子图）提供子图级标签但规模达 $88$GB。我们在此开发的 SQLite 后端可通过相同的索引查询流式处理 Elliptic2；完整的 Elliptic2 评估作为第~\ref{sec:conclusion}节的未来工作。针对审稿人提问的回应：Elliptic2 的子图标签面向不同任务（子图二元分类）而非我们的环级检测，且其规模超出本研究的计算预算。
+\textbf{次要数据集（未来工作）：Elliptic2。} Elliptic2 数据集（49M 节点，196M 边，122K 标注子图）提供子图级标签但规模达 $88$GB。我们在此开发的 SQLite 后端可通过相同的索引查询流式处理 Elliptic2；完整的 Elliptic2 评估作为第~\ref{sec:conclusion}节的未来工作。我们将范围限定于此，因为 Elliptic2 的子图标签面向不同任务（子图二元分类）而非我们的环级检测，且其 $88$GB 规模超出本研究的计算预算。
 
 \subsection{基线方法}
 \label{sec:exp-baselines}
@@ -366,7 +366,7 @@ GPU 显存 & 1.2GB & 0.8GB & 1.0GB & 0.5GB & \textbf{0.6GB} \\
 \subsection{评估指标}
 \label{sec:exp-metrics}
 
-我们在测试集上报告 AUC-ROC、AUC-PR 和 F1。AUC-PR 是类别不平衡（我们的设定下 $1.6{:}1$）下的头条指标。遵循审稿人 1 的建议，我们不将``约束满足率''作为头条对比指标，因为它对 TC-GNN 是自证性的；我们仅在消融诊断中保留。
+我们在测试集上报告 AUC-ROC、AUC-PR 和 F1。AUC-PR 是类别不平衡（我们的设定下 $1.6{:}1$）下的头条指标。我们不将``约束满足率''作为头条对比指标，因为它对 TC-GNN 是自证性的；我们仅在消融诊断中保留。
 
 \subsection{主要结果}
 \label{sec:exp-main}
