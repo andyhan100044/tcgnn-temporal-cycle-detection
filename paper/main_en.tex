@@ -528,6 +528,28 @@ timestamps within a 14-timestep window, and uses value-conserving
 amounts ($100 \pm 5\%$ jitter). We inject 500--5{,}000 such cycles per
 experiment to study scaling.
 
+\paragraph{Label-construction caveat and weak-supervision framing.}
+
+We acknowledge three label-construction risks in our evaluation
+methodology. \textbf{(L')} \emph{Definition bias}: the cycle rules
+(illicit-neighborhood $+$ time-increasing $+$ value-conservation) are
+our \emph{hypothesis} of what laundering looks like, not ground truth.
+\textbf{(L'')} \emph{Sample bias}: positives are constructed from
+only the 4{,}545 illicit nodes (2.2\% of the graph), creating class
+imbalance. \textbf{(L''')} \emph{Verification gap}: no independent
+cycle-level gold standard exists for Elliptic1.
+
+To mitigate these risks, we \textbf{frame our cycle labels as
+\emph{weak supervision}} rather than ground truth. The cycle-level
+pseudo-labels are derived from a transparent business-rule heuristic
+(node provenance $+$ temporal $+$ value constraints) and \emph{used in
+conjunction with the strong node-level labels} during model training
+and evaluation. This framing matches the standard practice in
+weakly-supervised learning on graphs~\cite{inspectionL2024,lawal2025}.
+Future work (§8.3 F6) will replace the heuristic with \emph{human-
+validated cycle-level gold standards} (e.g., from law-enforcement case
+files) or \emph{larger subgraph-labeled datasets} (e.g., Elliptic2).
+
 \textbf{Negative class (constraint-violating walks).} Real Elliptic1
 contains essentially no natural time-respecting cycles, so we generate
 negatives as random walks that violate one or more of C1--C5 (e.g., not
@@ -822,9 +844,21 @@ funds via lightweight GNNs. None formalize cycle-level temporal closure.
 \subsection{International trade fraud detection}
 \label{sec:related-trade}
 
-Static association rules and post-hoc audit dominate practice. To our
-knowledge this is the first work to formalize round-trip arbitrage as
-temporal cycle detection and to apply DGNN to its detection.
+Static association rules and post-hoc audit dominate practice.
+Propulsion Tech Journal (2024)~\cite{propulsion2024} applied GCN/GAT
+to 1.2M UN Comtrade records for trade-based money-laundering
+detection, achieving AUC-ROC $0.92$, but used static
+country-commodity-level aggregation without temporal information or
+cycle-level supervision. By contrast, our work operates at the
+\emph{enterprise} level with explicit time-increasing and
+value-conservation constraints. Generic GNN reviews of AML
+(\cite{lawal2025,bisAurora2024,inspectionL2024}) and Chinese surveys
+(\cite{gnnChineseReview2025}) note category imbalance, GNN
+over-smoothing, and adversarial vulnerability, but do not address
+cycle-level constraints or cross-domain transfer. To our knowledge
+this is the first work to formalize round-trip arbitrage as temporal
+cycle detection with NP-completeness analysis and to apply
+constraint-driven GNN to its detection.
 
 % =============================================================================
 \section{Conclusion and future work}
@@ -870,7 +904,73 @@ Elliptic2 (49M nodes) would require the same architecture with larger
 disk budget and streaming training. \textbf{(L4)} Single real dataset.
 We validated on Elliptic1 only; the trade-crypto structural isomorphism
 (Theorem~\ref{thm:iso}) is approximate with error $\eps'$ bounded by
-fee-jitter standard deviation.
+fee-jitter standard deviation. \textbf{(L5)} Cycle-level labels are
+\emph{weak supervision}, not ground truth. We construct cycle
+positives via a transparent business-rule heuristic (illicit-node
+neighborhood $+$ time-increasing $+$ value-conservation). This
+heuristic may \emph{miss} real-world laundering patterns that violate
+C2--C4 in non-obvious ways, or \emph{fabricate} patterns that look
+like laundering but are not. We frame our evaluation as a
+weakly-supervised study (§6.1) and defer human-validated gold
+standards to future work (§8.3 F6).
+
+\subsection{Cross-domain transfer: from crypto to international trade}
+\label{sec:transfer}
+
+Validating on crypto (Elliptic1) is a \emph{sandbox}; the practical
+deployment target is international trade fraud detection. Direct
+transfer is non-trivial because the two domains differ in ways that
+break our hard constraint embedding. We identify three concrete
+defects that must be addressed before operational deployment.
+
+\textbf{Defect T1: Value conservation $\neq$ value deviation detection.}
+In crypto-money laundering, the perpetrator seeks \emph{value
+conservation} (deposit 1 BTC, withdraw 1 BTC minus mixer fee), so our
+constraint C4 matches the true behavioral pattern. In trade-based
+money laundering (TBML), the perpetrator \emph{wants} the declared
+value to deviate from cost: e.g., \$1M export $\to$ \$1.2M re-import
+$\to$ \$1.5M re-export, each hop \emph{inflating} the value to claim
+larger tax rebates. The very feature we designed TC-GNN to detect
+(value stability) is the wrong signal for TBML. A direct transplant
+would systematically under-report. \textbf{Mitigation:} replace
+\emph{value conservation} with \emph{value-deviation abnormality} (e.g.,
+flag hops whose declared value deviates $> 2\sigma$ from the
+industry-average markup for that commodity).
+
+\textbf{Defect T2: Time-window semantics differ by orders of magnitude.}
+Crypto cycles complete in minutes to hours ($\Delta t \sim 24$\,h
+justified by mixer batch windows). Trade-based cycles must align with
+\emph{declaration cycles} (monthly VAT filings, quarterly export
+rebate claims) and \emph{logistics transit times} (weeks for shipping,
+months for inventory). A $\Delta t$ set for crypto misses all
+cross-month trade rings; a $\Delta t$ set for trade becomes
+computationally intractable ($\Delta^k$ explosion). \textbf{Mitigation:}
+parameterize $\Delta t$ in \emph{declaration-cycle units} rather than
+absolute time, and exploit problem structure (e.g., inter-company
+transactions cluster around quarter-end) to prune.
+
+\textbf{Defect T3: Missing physical-world cross-verification.}
+Crypto transactions are \emph{pure financial flow}; a closed cycle on
+chain is the full behavior. Trade transactions have \emph{parallel
+physical flows} (logistics, customs declarations, inventory records,
+invoices) that are externally auditable. A truly empty trade-based
+cycle (no real goods shipped) creates \emph{flow mismatch} between
+the financial graph (which forms a cycle) and the physical graph
+(which does not). TC-GNN models only the financial graph and cannot
+detect this. \textbf{Mitigation:} future work (§8.3 F7) should
+construct a \emph{heterogeneous graph} with both \emph{cash edges} and
+\emph{goods edges}, and detect cycles in the bipartite projection
+where the two flow types should agree.
+
+\textbf{Transfer is feasible but non-trivial.} The above defects are
+\emph{not} fatal limitations of the TC-GNN framework --- they are
+\emph{adaptation challenges} of porting a crypto-validated framework to
+a structurally different domain. Each defect has a known
+mathematical remedy (replace C4 with deviation-abnormality;
+re-parameterize $\Delta t$; augment the graph with goods-flow edges).
+We therefore position TC-GNN as a \emph{cycle-detection framework}
+whose \emph{constraint layer} is the reusable intellectual contribution,
+and whose \emph{constraint values} must be re-set per domain.
 
 \subsection{Stress test: realistic AML false-positive patterns}
 \label{sec:exp-stress}
@@ -972,7 +1072,26 @@ from data rather than fixing them. \textbf{(F5) \textsc{TC-GNN}2 with
 provenance awareness.} Combine hard constraint embedding (C1--C5) with
 provenance-aware node features that distinguish illicit-anchored cycles
 from licit-anchored ones --- addressing the structural limitation exposed
-by our stress test (Section~\ref{sec:exp-stress}).
+by our stress test (Section~\ref{sec:exp-stress}). \textbf{(F6)
+Weakly-supervised TC-GNN with cycle-level gold standards.} Replace our
+business-rule cycle labels with human-validated cycle-level annotations
+(e.g., from law-enforcement case files) or subgraph-level labels from
+Elliptic2. Frame training as multi-task: $\L_{\text{node}}$ (strong
+supervision from 4{,}545 illicit nodes) + $\L_{\text{cycle}}$
+(weak supervision from candidate generation) + $\L_{\text{consistency}}$
+(cross-grain agreement regularization). \textbf{(F7) Multi-modal
+heterogeneous graph for trade data.} Augment the financial graph
+with \emph{goods-flow} and \emph{invoice-flow} edges. Detect cycles in
+the \emph{bipartite projection} where financial cycle $\Leftrightarrow$
+physical non-cycle (i.e., money flows in a cycle but goods don't).
+This addresses \textbf{Defect T3} (§8.4) directly. \textbf{(F8)
+Hierarchical TC-GNN for very long cycles.} Decompose $k > 12$
+cycles into overlapping 3--5-cycle sub-cycles, aggregate predictions
+across the hierarchy. \textbf{(F9) Domain-adaptive constraint
+relaxation.} Auto-learn per-domain constraint thresholds ($\Delta t$,
+$\eps$) and even constraint \emph{types} (conservation vs.\ deviation)
+from a small labeled set, enabling cross-domain transfer with minimal
+manual re-engineering.
 
 % =============================================================================
 \appendices
