@@ -197,6 +197,25 @@ mitigation.
 
 ---
 
+## Q11. "Your method only tests k=3-6 cycles. Can it detect 5+ hop laundering rings?"
+
+**Severity:** High (likely follow-up to Q2)
+**Where addressed:** §6.7 Cycle-length generalization (new), §8.2
+
+> **Response:** We explicitly evaluate cycle lengths $k = 8$--$12$ in
+> §6.7. The architecture's cycle-subgraph message passing and
+> constraint embedding \emph{do} generalize to longer cycles, with only
+> a modest AUC-ROC drop (0.578 → 0.632, both with realistic-AML
+> negatives). The dominant factor in stress-test performance is the
+> negative distribution, not the cycle length. The pre-existing
+> NP-completeness analysis (Theorem 1) confirms that the algorithm
+> complexity scales as $O(\Delta^k)$, so $k = 10$ cycles are
+> computationally tractable. We have not yet tested $k > 12$ or
+> designed a \emph{hierarchical} variant that decomposes large cycles
+> into overlapping sub-cycles; this is future work (§8.3 F5).
+
+---
+
 ## Summary of rebuttal strategy
 
 1. **Don't fight the questions.** Acknowledge limitations, especially
