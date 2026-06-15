@@ -13,6 +13,7 @@ All figures are vector PDF for LaTeX inclusion.
 """
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -23,11 +24,47 @@ import matplotlib.patches as mpatches
 from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 import numpy as np
 import pandas as pd
-import json
 
 
 FIG_DIR = Path("figures")
 FIG_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Load latest experimental results from CSVs
+# ---------------------------------------------------------------------------
+def load_results():
+    """Load latest numbers from CSVs (auto-updated by run_experiment_sqlite.py
+    and statistical_tests.py). Returns dict of model -> metrics."""
+    res = {}
+    # Near-miss (primary)
+    nm_csv = Path("results/statistical_tests.csv")
+    if nm_csv.exists():
+        df = pd.read_csv(nm_csv)
+        for _, row in df.iterrows():
+            res[row["model"]] = {
+                "auc_roc": row["auc_roc"],
+                "auc_roc_lo": row["auc_roc_lo"],
+                "auc_roc_hi": row["auc_roc_hi"],
+                "auc_pr": row["auc_pr"],
+                "auc_pr_lo": row["auc_pr_lo"],
+                "auc_pr_hi": row["auc_pr_hi"],
+            }
+    # Realistic AML
+    r_csv = Path("results/statistical_tests_realistic.csv")
+    if r_csv.exists():
+        df = pd.read_csv(r_csv)
+        for _, row in df.iterrows():
+            m = row["model"]
+            if m in res:
+                res[m]["auc_roc_realistic"] = row["auc_roc"]
+                res[m]["auc_roc_realistic_lo"] = row["auc_roc_lo"]
+                res[m]["auc_roc_realistic_hi"] = row["auc_roc_hi"]
+    return res
+
+
+def get_metric(res, model, metric, fallback=None):
+    return res.get(model, {}).get(metric, fallback)
 
 
 # ---------------------------------------------------------------------------
@@ -292,19 +329,24 @@ def main():
 
 
 def fig_results():
-    """Headline results: model comparison bar chart."""
-    models = ["GCN", "GAT", "TGN", "DCRNN", "GLASS", "XGBoost", "TC-GNN\n(base)", "TC-GNN\n(opt)"]
-    auc_roc = [0.840, 0.831, 0.786, 0.799, 0.888, 1.000, 0.642, 0.962]
-    auc_pr  = [0.762, 0.733, 0.603, 0.718, 0.767, 1.000, 0.573, 0.888]
+    """Headline results: model comparison bar chart.
 
-    x = np.arange(len(models))
+    Reads from CSVs (auto-updated by statistical_tests.py).
+    """
+    res = load_results()
+    models_csv = ["GCN", "GAT", "TGN", "DCRNN", "GLASS", "XGBoost", "TC-GNN", "TC-GNN-opt"]
+    display = ["GCN", "GAT", "TGN", "DCRNN", "GLASS", "XGBoost", "TC-GNN\n(base)", "TC-GNN\n(opt)"]
+    auc_roc = [get_metric(res, m, "auc_roc", 0.5) for m in models_csv]
+    auc_pr  = [get_metric(res, m, "auc_pr", 0.5) for m in models_csv]
+
+    x = np.arange(len(display))
     width = 0.35
 
     fig, ax = plt.subplots(figsize=(12, 5))
     bars1 = ax.bar(x - width/2, auc_roc, width, label="AUC-ROC", color="#1976D2")
     bars2 = ax.bar(x + width/2, auc_pr, width, label="AUC-PR", color="#FF7043")
     ax.set_xticks(x)
-    ax.set_xticklabels(models, fontsize=10)
+    ax.set_xticklabels(display, fontsize=10)
     ax.set_ylabel("Score")
     ax.set_title("Headline cycle-level detection on REAL Elliptic1\n"
                  "(165-dim features, near-miss negatives, 1K candidates, 30 epochs)")
@@ -319,25 +361,24 @@ def fig_results():
     plt.tight_layout()
     plt.savefig(FIG_DIR / "results_comparison.pdf", bbox_inches="tight", format="pdf")
     plt.close()
-    print("  -> figures/results_comparison.pdf")
+    print(f"  -> figures/results_comparison.pdf  (numbers from CSVs)")
 
 
 def fig_bootstrap_ci():
-    """Plot bootstrap 95% CI for AUC-ROC of all models."""
-    models = ["TC-GNN", "TC-GNN-opt", "GCN", "GAT", "TGN", "DCRNN", "GLASS", "XGBoost"]
-    auc = [0.642, 0.962, 0.840, 0.831, 0.786, 0.799, 0.888, 1.000]
-    lo  = [0.574, 0.927, 0.771, 0.758, 0.701, 0.720, 0.832, 1.000]
-    hi  = [0.714, 0.989, 0.900, 0.894, 0.860, 0.862, 0.933, 1.000]
-    err_lo = [a - l for a, l in zip(auc, lo)]
-    err_hi = [h - a for a, h in zip(auc, hi)]
+    """Plot bootstrap 95% CI for AUC-ROC of all models (reads from CSVs)."""
+    res = load_results()
+    models_csv = ["TC-GNN", "TC-GNN-opt", "GCN", "GAT", "TGN", "DCRNN", "GLASS", "XGBoost"]
+    auc = [get_metric(res, m, "auc_roc", 0.5) for m in models_csv]
+    lo  = [get_metric(res, m, "auc_roc_lo", a - 0.05) for m, a in zip(models_csv, auc)]
+    hi  = [get_metric(res, m, "auc_roc_hi", a + 0.05) for m, a in zip(models_csv, auc)]
 
     fig, ax = plt.subplots(figsize=(10, 5))
     colors = ["#90A4AE" if "TC-GNN" not in m or m == "TC-GNN" else "#E53935"
-              for m in models]
-    ax.barh(range(len(models)), [hi[i] - lo[i] for i in range(len(models))],
+              for m in models_csv]
+    ax.barh(range(len(models_csv)), [hi[i] - lo[i] for i in range(len(models_csv))],
             left=lo, color=colors, alpha=0.7, edgecolor="black")
-    ax.scatter(auc, range(len(models)), color="black", zorder=10, s=50, label="Point estimate")
-    ax.set_yticks(range(len(models))); ax.set_yticklabels(models)
+    ax.scatter(auc, range(len(models_csv)), color="black", zorder=10, s=50, label="Point estimate")
+    ax.set_yticks(range(len(models_csv))); ax.set_yticklabels(models_csv)
     ax.set_xlabel("AUC-ROC")
     ax.set_title("Bootstrap 95% confidence intervals (1000 resamples)\n"
                  "TC-GNN-opt (red) significantly outperforms all GNN baselines")
@@ -347,7 +388,43 @@ def fig_bootstrap_ci():
     plt.tight_layout()
     plt.savefig(FIG_DIR / "bootstrap_ci.pdf", bbox_inches="tight", format="pdf")
     plt.close()
-    print("  -> figures/bootstrap_ci.pdf")
+    print("  -> figures/bootstrap_ci.pdf  (numbers from CSVs)")
+
+
+def fig_stress_test():
+    """Side-by-side: near-miss vs realistic AML stress test."""
+    res = load_results()
+    models_csv = ["TC-GNN", "TC-GNN-opt", "GCN", "GAT", "TGN", "DCRNN", "GLASS", "XGBoost"]
+    near_miss = [get_metric(res, m, "auc_roc", 0.5) for m in models_csv]
+    realistic = [get_metric(res, m, "auc_roc_realistic", 0.5) for m in models_csv]
+
+    x = np.arange(len(models_csv))
+    width = 0.38
+
+    fig, ax = plt.subplots(figsize=(12, 5))
+    bars1 = ax.bar(x - width/2, near_miss, width, label="Near-miss negatives",
+                    color="#64B5F6", edgecolor="black")
+    bars2 = ax.bar(x + width/2, realistic, width, label="Realistic AML negatives",
+                    color="#E57373", edgecolor="black")
+    ax.set_xticks(x)
+    ax.set_xticklabels(models_csv, fontsize=10, rotation=15)
+    ax.set_ylabel("AUC-ROC")
+    ax.set_title("Stress test: TC-GNN-opt collapses under realistic negatives")
+    ax.set_ylim(0, 1.15)
+    ax.axhline(0.5, ls="--", color="gray", alpha=0.4, label="Random")
+    ax.legend(loc="lower right")
+    ax.grid(alpha=0.3, axis="y")
+
+    # Annotate TC-GNN-opt collapse
+    for bar in [bars2[1]]:
+        h = bar.get_height()
+        ax.annotate("Collapse!", xy=(bar.get_x() + bar.get_width()/2, h + 0.05),
+                    ha="center", color="red", fontweight="bold", fontsize=10)
+
+    plt.tight_layout()
+    plt.savefig(FIG_DIR / "stress_test.pdf", bbox_inches="tight", format="pdf")
+    plt.close()
+    print("  -> figures/stress_test.pdf  (numbers from CSVs)")
 
 
 def fig_stress_test():
